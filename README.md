@@ -2,8 +2,9 @@
   <h1>🌲 Canopee</h1>
   <p><strong>A type-safe, fluent configuration library for Python 3.11+.</strong></p>
   <p>
-    <a href="https://pypi.org/project/canopee/"><img src="https://img.shields.io/pypi/v/canopee.svg" alt="PyPI version"></a>
-    <a href="https://pypi.org/project/canopee/"><img src="https://img.shields.io/pypi/pyversions/canopee.svg" alt="Python versions"></a>
+    <a href="https://pypi.org/project/canopee/"><img alt="PyPI - Version" src="https://img.shields.io/pypi/v/canopee"></a>
+    <a href="https://pypi.org/project/canopee/"><img alt="GitHub License" src="https://img.shields.io/github/license/mayeroa/canopee"></a>
+    <a href="https://pypi.org/project/canopee/"><img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/canopee"></a>
     <a href="https://github.com/mayeroa/canopee/actions"><img src="https://img.shields.io/github/actions/workflow/status/mayeroa/canopee/tests.yml?branch=main" alt="CI Status"></a>
   </p>
 </div>
