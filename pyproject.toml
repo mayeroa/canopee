@@ -1,25 +1,39 @@
-[project]
-name = "canopee"
-version = "0.1.0"
-description = "A type-safe python configuration library"
-readme = "README.md"
-authors = [
-    { name = "Alexandre Mayerowitz", email = "alexandre.mayerowitz@airbus.com" }
-]
-requires-python = ">=3.11"
-dependencies = [
-    "pydantic>=2.12.5",
-    "tomli-w>=1.2.0",
-]
-
 [build-system]
 requires = ["uv_build>=0.10.8,<0.11.0"]
 build-backend = "uv_build"
 
-[dependency-groups]
-click = [
-    "click>=8.3.1",
+[project]
+name = "canopee"
+version = "0.0.2"
+description = "A type-safe python configuration library"
+readme = "README.md"
+authors = [
+    { name = "Alexandre Mayerowitz", email = "alexandre.mayerowitz@gmail.com" },
 ]
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.12.5", "tomli-w>=1.2.0"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Repository = "https://github.com/mayeroa/canopee"
+Homepage = "https://mayeroa.github.io/canopee/"
+Documentation = "https://mayeroa.github.io/canopee/"
+Issues = "https://github.com/mayeroa/canopee/issues"
+
+[dependency-groups]
+click = ["click>=8.3.1"]
 dev = [
     "mkdocs-material>=9.7.4",
     "pytest>=9.0.2",
@@ -27,33 +41,27 @@ dev = [
     "ruff>=0.15.4",
     "zensical>=0.0.24",
 ]
-ml = [
-    "lightning>=2.6.1",
-    "torch>=2.10.0",
-    "torchvision>=0.25.0",
-]
-typer = [
-    "typer>=0.24.1",
-]
+ml = ["lightning>=2.6.1", "torch>=2.10.0", "torchvision>=0.25.0"]
+typer = ["typer>=0.24.1"]
 
 [tool.ruff.lint]
 extend-select = [
-    "F",        # Pyflakes rules
-    "W",        # PyCodeStyle warnings
-    "E",        # PyCodeStyle errors
-    "I",        # Sort imports properly
-    "UP",       # Warn if certain things can changed due to newer Python versions
-    "C4",       # Catch incorrect use of comprehensions, dict, list, etc
-    "FA",       # Enforce from __future__ import annotations
-    "ISC",      # Good use of string concatenation
-    "ICN",      # Use common import conventions
-    "RET",      # Good return practices
-    "SIM",      # Common simplification rules
-    "TID",      # Some good import practices
-    "TC",       # Enforce importing certain types in a TYPE_CHECKING block
-    "PTH",      # Use pathlib instead of os.path
-    "TD",       # Be diligent with TODO comments
-    "NPY",      # Some numpy-specific things
+    "F",   # Pyflakes rules
+    "W",   # PyCodeStyle warnings
+    "E",   # PyCodeStyle errors
+    "I",   # Sort imports properly
+    "UP",  # Warn if certain things can changed due to newer Python versions
+    "C4",  # Catch incorrect use of comprehensions, dict, list, etc
+    "FA",  # Enforce from __future__ import annotations
+    "ISC", # Good use of string concatenation
+    "ICN", # Use common import conventions
+    "RET", # Good return practices
+    "SIM", # Common simplification rules
+    "TID", # Some good import practices
+    "TC",  # Enforce importing certain types in a TYPE_CHECKING block
+    "PTH", # Use pathlib instead of os.path
+    "TD",  # Be diligent with TODO comments
+    "NPY", # Some numpy-specific things
 ]
 
 
