@@ -28,17 +28,17 @@ Quick start::
     fast = cfg.evolve(lr=1e-2, epochs=3)
 
     # Save / load:
-    cfg.save("run.toml")
-    cfg2 = TrainingConfig.load("run.toml")
+    save(cfg, "run.toml")
+    cfg2 = load(TrainingConfig, "run.toml")
 
     # String serialization:
-    text = cfg.dumps("yaml")
-    cfg3 = TrainingConfig.loads("yaml", text)
+    text = dumps(cfg, "yaml")
+    cfg3 = loads(TrainingConfig, "yaml", text)
 """
 
 from canopee import sweep as sweep
 from canopee.cli import clify, ArgparseBackend, ClickBackend, TyperBackend
-from canopee.core import ConfigBase, diff, evolve, patch, to_flat
+from canopee.core import ConfigBase, diff, evolve, to_flat
 from canopee.sources import (
     CLISource,
     DictSource,
@@ -47,6 +47,7 @@ from canopee.sources import (
     Source,
     merge_sources,
 )
+from canopee.serialization import dumps, load, loads, save
 from canopee.store import ConfigStore, global_store
 
 __all__ = [
@@ -67,7 +68,10 @@ __all__ = [
     "evolve",
     "diff",
     "to_flat",
-    "patch",
+    "save",
+    "load",
+    "dumps",
+    "loads",
 ]
 
 __version__ = "0.1.0"

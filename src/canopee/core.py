@@ -20,6 +20,7 @@ Design principles
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import (
@@ -138,6 +139,17 @@ class ConfigBase(BaseModel):
         fields = ", ".join(f"{k}={v!r}" for k, v in self._dump_for_validation().items())
         return f"{self.__class__.__name__}({fields})"
 
+    @computed_field
+    @property
+    def fingerprint(self) -> str:
+        """Return a stable SHA-256 fingerprint of the configuration.
+
+        Returns:
+            str: The hexadecimal digest of the fingerprint.
+        """
+        data = json.dumps(self._dump_for_validation(), sort_keys=True)
+        return hashlib.sha256(data.encode()).hexdigest()
+
 
 # ---------------------------------------------------------------------------
 # Functional API
@@ -208,18 +220,6 @@ def to_flat(config: ConfigBase) -> dict[str, Any]:
     return dict(_flatten(config.model_dump()))
 
 
-@contextmanager
-def patch(config: T, **overrides: Any) -> Iterator[T]:
-    """Context manager yielding a temporary evolved copy.
-
-    Args:
-        config (T): The source configuration.
-        **overrides (Any): The fields to override and their temporary values.
-
-    Yields:
-        Iterator[T]: A temporary configuration instance with the overrides applied.
-    """
-    yield evolve(config, **overrides)
 
 
 # ---------------------------------------------------------------------------

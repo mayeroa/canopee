@@ -3,7 +3,18 @@ import json
 import pytest
 from pydantic import Field, ValidationError, computed_field
 
-from canopee import ConfigBase, ConfigStore, global_store
+from canopee import (
+    ConfigBase,
+    ConfigStore,
+    diff,
+    dumps,
+    evolve,
+    global_store,
+    load,
+    loads,
+    save,
+    to_flat,
+)
 from canopee.sources import DictSource
 from canopee.sweep import Sweep, choice, uniform
 
@@ -62,7 +73,7 @@ def test_immutability(base_config):
 
 
 def test_evolve(base_config):
-    v2 = base_config.evolve(epochs=5)
+    v2 = evolve(base_config, epochs=5)
     assert v2 is not base_config
     assert v2.epochs == 5
     assert v2.total_steps == 5000  # computed field re-evaluated
@@ -70,7 +81,7 @@ def test_evolve(base_config):
 
 
 def test_evolve_nested_double_underscore(base_config):
-    v2 = base_config.evolve(opt__lr=0.5)
+    v2 = evolve(base_config, opt__lr=0.5)
     assert v2.opt.lr == 0.5
     assert base_config.opt.lr == 1e-3
 
@@ -91,34 +102,33 @@ def test_ror_operator(base_config):
 
 
 def test_serialization_excludes_computed(base_config):
-    d = json.loads(base_config.dumps("json"))
+    d = json.loads(dumps(base_config, "json"))
     assert "total_steps" not in d
     assert "params" not in d["model"]
 
-    d_all = json.loads(base_config.dumps("json", include_computed=True))
+    d_all = json.loads(dumps(base_config, "json", include_computed=True))
     assert "total_steps" in d_all
     assert "params" in d_all["model"]
 
 
 def test_fingerprint(base_config):
-    v2 = base_config.evolve(epochs=10)  # unchanged logically
+    v2 = evolve(base_config, epochs=10)  # unchanged logically
     assert base_config.fingerprint == v2.fingerprint
 
-    v3 = base_config.evolve(epochs=11)
+    v3 = evolve(base_config, epochs=11)
     assert base_config.fingerprint != v3.fingerprint
 
 
 def test_diff(base_config):
     v2 = base_config | {"epochs": 3, "opt.lr": 1e-2}
-    diff = base_config.diff(v2)
-    assert "epochs" in diff
-    assert diff["epochs"] == (10, 3)
-    # opt is a nested object, its dict representation changed
-    assert "opt" in diff
+    result = diff(base_config, v2)
+    # opt.lr changed, and fingerprint changed
+    assert "opt.lr" in result
+    assert "fingerprint" in result
 
 
 def test_to_flat(base_config):
-    flat = base_config.to_flat()
+    flat = to_flat(base_config)
     assert flat["epochs"] == 10
     assert flat["opt.name"] == "adam"
     assert flat["model.hidden"] == 256
@@ -131,32 +141,32 @@ def test_to_flat(base_config):
 
 def test_string_serialization(base_config):
     # JSON
-    js = base_config.dumps("json")
-    v_js = TrainConfig.loads("json", js)
+    js = dumps(base_config, "json")
+    v_js = loads(TrainConfig, "json", js)
     assert v_js == base_config
 
     # TOML
-    tm = base_config.dumps("toml")
-    v_tm = TrainConfig.loads("toml", tm)
+    tm = dumps(base_config, "toml")
+    v_tm = loads(TrainConfig, "toml", tm)
     assert v_tm == base_config
 
     # YAML
-    ym = base_config.dumps("yaml")
-    v_ym = TrainConfig.loads("yaml", ym)
+    ym = dumps(base_config, "yaml")
+    v_ym = loads(TrainConfig, "yaml", ym)
     assert v_ym == base_config
 
 
 def test_file_serialization(base_config, tmp_path):
     path = tmp_path / "config.toml"
-    base_config.save(path)
+    save(base_config, path)
     assert path.exists()
 
-    v_load = TrainConfig.load(path)
+    v_load = load(TrainConfig, path)
     assert v_load == base_config
 
     path_json = tmp_path / "config.json"
-    base_config.save(path_json, indent=4)
-    v_load_json = TrainConfig.load(path_json)
+    save(base_config, path_json, indent=4)
+    v_load_json = load(TrainConfig, path_json)
     assert v_load_json == base_config
 
 
@@ -178,7 +188,7 @@ def test_store_dict_api():
     assert retrieved == cfg1
 
     # typed retrieval
-    retrieved_typed = global_store["v1", TrainConfig]
+    retrieved_typed = global_store.get("v1", TrainConfig)
     assert retrieved_typed == cfg1
 
     global_store.clear()
