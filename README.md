@@ -4,7 +4,7 @@
   <p>
     <a href="https://pypi.org/project/canopee/"><img src="https://img.shields.io/pypi/v/canopee.svg" alt="PyPI version"></a>
     <a href="https://pypi.org/project/canopee/"><img src="https://img.shields.io/pypi/pyversions/canopee.svg" alt="Python versions"></a>
-    <a href="https://github.com/canopee-py/canopee/actions"><img src="https://img.shields.io/github/actions/workflow/status/canopee-py/canopee/ci.yml?branch=main" alt="CI Status"></a>
+    <a href="https://github.com/mayeroa/canopee/actions"><img src="https://img.shields.io/github/actions/workflow/status/mayeroa/canopee/tests.yml?branch=main" alt="CI Status"></a>
   </p>
 </div>
 
