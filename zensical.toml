@@ -29,6 +29,15 @@ site_author = "Alexandre Mayerowitz"
 # Read more: https://zensical.org/docs/setup/basics/#site_url
 site_url = "https://mayeroa.github.io/canopee/"
 
+# The link to the repository will be rendered next to the search bar on big screens.
+# Additionally, for public repositories hosted on GitHub or GitLab, the latest release tag1,
+# as well as the number of stars and forks, are automatically requested and rendered.
+repo_url = "https://github.com/mayeroa/canopee"
+
+# Zensical will infer the source provider by examining the URL and try to set the repository name automatically.
+# If you wish to customize the name, set repo_name in your configuration:
+repo_name = "mayeroa/canopee"
+
 # The copyright notice appears in the page footer and can contain an HTML
 # fragment.
 #
@@ -317,8 +326,8 @@ code = "Jetbrains Mono"
 # - https://zensical.org/docs/authoring/icons-emojis/#search
 # ----------------------------------------------------------------------------
 [project.theme.icon]
-logo = "lucide/smile"
-repo = "lucide/smile"
+logo = "lucide/tree-deciduous"
+repo = "lucide/github"
 
 # ----------------------------------------------------------------------------
 # The "extra" section contains miscellaneous settings.
