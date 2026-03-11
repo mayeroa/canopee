@@ -1,0 +1,284 @@
+/* ============================================================
+   Canopée — MkDocs Material custom styles
+   ============================================================ */
+
+/* ── Brand palette ─────────────────────────────────────────── */
+:root {
+  --cf-green:  #3fb85e;
+  --cf-dark:   #0b1f10;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:        #3fb85e;
+  --md-primary-fg-color--light: #52cc70;
+  --md-primary-fg-color--dark:  #2e9448;
+  --md-accent-fg-color:         #52cc70;
+  --md-default-bg-color:        #0c1a0f;
+  --md-default-fg-color:        #ddeee2;
+  --md-code-bg-color:           #0f2214;
+  --md-code-fg-color:           #b8d4be;
+  --md-typeset-a-color:         #3fb85e;
+}
+
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color:        #1e7a3a;
+  --md-primary-fg-color--light: #2a9e4a;
+  --md-primary-fg-color--dark:  #155c2a;
+  --md-accent-fg-color:         #2a9e4a;
+}
+
+/* ── Global tweaks ─────────────────────────────────────────── */
+.md-header {
+  border-bottom: 1px solid rgba(79, 255, 176, 0.15);
+}
+
+.md-typeset pre > code {
+  font-size: 0.82rem;
+  line-height: 1.75;
+}
+
+/* ── Home page: hero ───────────────────────────────────────── */
+.hero {
+  padding: 3rem 2rem 3rem;
+  text-align: center;
+  background: linear-gradient(160deg,
+    rgba(31, 71, 42, 0.18) 0%,
+    rgba(11, 31, 16, 0.35) 100%);
+  border-radius: 12px;
+  margin-bottom: 3rem;
+  border: 1px solid rgba(63, 184, 94, 0.12);
+  border-top: 3px solid #3fb85e;
+}
+
+/* SVG logo block */
+.hero-logo {
+  margin: 0 auto 2rem;
+  max-width: 580px;
+  width: 100%;
+}
+
+.hero-logo svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* "canopée" text in the SVG uses system serif — ensure dark-mode
+   foreground colour is respected by overriding nothing (SVG fill
+   is explicit in the markup). */
+
+.hero p {
+  font-size: 1.1rem;
+  opacity: 0.68;
+  max-width: 520px;
+  margin: 0 auto 2rem;
+  line-height: 1.8;
+}
+
+.hero-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.hero-btn {
+  padding: 0.7rem 1.6rem;
+  border-radius: 0;                   /* flat design: no border-radius */
+  font-weight: 500;
+  font-size: 0.9rem;
+  text-decoration: none !important;
+  letter-spacing: 0.04em;
+  transition: all 0.15s;
+}
+
+.hero-btn--primary {
+  background: #3fb85e;
+  color: #0b1f10 !important;
+}
+.hero-btn--primary:hover { background: #52cc70; }
+
+.hero-btn--secondary {
+  border: 1.5px solid #3fb85e;
+  color: #3fb85e !important;
+}
+.hero-btn--secondary:hover { background: rgba(63,184,94,0.08); }
+
+/* ── Home page: feature grid ───────────────────────────────── */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 1.2rem;
+  margin: 2rem 0;
+}
+
+.feature-card {
+  padding: 1.4rem;
+  border-radius: 10px;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  background: var(--md-code-bg-color);
+  transition: border-color 0.18s, transform 0.18s;
+}
+.feature-card:hover {
+  border-color: var(--md-primary-fg-color);
+  transform: translateY(-2px);
+}
+.feature-card__icon  { font-size: 1.6rem; margin-bottom: 0.7rem; display: block; }
+.feature-card__title { font-weight: 600; margin-bottom: 0.4rem; font-size: 1rem; }
+.feature-card__desc  { font-size: 0.875rem; opacity: 0.68; line-height: 1.6; }
+
+/* ── Home page: comparison table ───────────────────────────── */
+.comparison-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.comparison-table th {
+  text-align: left;
+  padding: 0.7rem 1rem;
+  border-bottom: 2px solid var(--md-primary-fg-color);
+  font-weight: 600;
+}
+.comparison-table td {
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  vertical-align: top;
+}
+.comparison-table .yes     { color: #3fb85e; font-weight: 500; }
+.comparison-table .no      { color: #ff6c6c; }
+.comparison-table .partial { color: #ffb84d; }
+
+/* ── Badges ────────────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-family: var(--md-code-font);
+  padding: 2px 8px;
+  border-radius: 20px;
+  border: 1px solid;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.badge--green  { border-color: #3fb85e; color: #3fb85e; }
+.badge--purple { border-color: #7b6cff; color: #7b6cff; }
+.badge--orange { border-color: #ffb84d; color: #ffb84d; }
+
+/* ── API reference cards ────────────────────────────────────── */
+.api-card {
+  padding: 1.1rem 1.4rem;
+  border-left: 3px solid var(--md-primary-fg-color);
+  background: var(--md-code-bg-color);
+  border-radius: 0 8px 8px 0;
+  margin: 1rem 0;
+}
+.api-card__signature {
+  font-family: var(--md-code-font);
+  font-size: 0.9rem;
+  color: var(--md-primary-fg-color);
+  margin-bottom: 0.5rem;
+}
+
+/* ── Getting Started: hero blurb ────────────────────────────── */
+.gs-hero {
+  font-size: 1.1rem;
+  line-height: 1.8;
+  color: var(--md-default-fg-color--light);
+  padding: 1.25rem 1.5rem;
+  border-left: 3px solid var(--md-primary-fg-color);
+  background: rgba(79,255,176,0.04);
+  border-radius: 0 10px 10px 0;
+  margin-bottom: 2rem;
+}
+
+/* ── Getting Started: steps overview table ──────────────────── */
+.gs-steps-overview {
+  margin-bottom: 2.5rem;
+}
+.gs-steps-overview table {
+  width: 100%;
+  font-size: 0.9rem;
+}
+.gs-steps-overview td:first-child {
+  white-space: nowrap;
+  font-family: var(--md-code-font);
+  font-size: 0.82rem;
+}
+
+/* ── Getting Started: requirements grid ─────────────────────── */
+.req-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.req-card {
+  padding: 1.25rem 1.4rem;
+  border-radius: 10px;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  background: var(--md-code-bg-color);
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+.req-card strong { display: block; margin-bottom: 0.5rem; font-size: 0.95rem; }
+.req-card .twemoji { margin-right: 5px; }
+
+/* ── Getting Started: next buttons ─────────────────────────── */
+.gs-next {
+  margin-top: 2.5rem;
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* ── Getting Started: next cards grid (quickstart bottom) ────── */
+.gs-next-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.gs-next-card {
+  padding: 1.25rem 1.4rem;
+  border-radius: 10px;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  background: var(--md-code-bg-color);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  transition: border-color 0.18s, transform 0.18s;
+}
+.gs-next-card:hover {
+  border-color: var(--md-primary-fg-color);
+  transform: translateY(-2px);
+}
+.gs-next-card strong { display: block; margin-bottom: 0.5rem; font-size: 0.92rem; }
+.gs-next-card a { color: var(--md-primary-fg-color); text-decoration: none; font-weight: 500; }
+.gs-next-card a:hover { text-decoration: underline; }
+
+/* ── Why canopee: option cards ────────────────────────────── */
+.why-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0 2.5rem;
+}
+
+.why-option {
+  padding: 1.25rem 1.4rem;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+.why-option strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+}
+.why-option--bad {
+  border: 1px solid rgba(255, 108, 108, 0.2);
+  background: rgba(255, 108, 108, 0.04);
+}
+.why-option--bad strong { color: #ff8888; }
+.why-option .twemoji { margin-right: 4px; vertical-align: middle; }
+
+/* ── Navigation active link ─────────────────────────────────── */
+.md-nav__item--active > .md-nav__link {
+  color: var(--md-primary-fg-color);
+}
