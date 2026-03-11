@@ -15,7 +15,6 @@ from canopee import (
     save,
     to_flat,
 )
-from canopee.sources import DictSource
 from canopee.sweep import Sweep, choice, uniform
 
 

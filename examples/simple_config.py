@@ -2,7 +2,7 @@
 from typing import Annotated, Literal
 
 # Third-party libraries
-from pydantic import computed_field, Field
+from pydantic import Field
 from torch import nn
 from torch.optim import Adam, Optimizer, SGD
 from torch.optim.lr_scheduler import CosineAnnealingLR, LRScheduler, StepLR

@@ -81,16 +81,13 @@ import argparse
 import functools
 import inspect
 import json
-import sys
 import types
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     Any,
     Callable,
     Literal,
-    Optional,
-    Sequence,
     TypeVar,
     Union,
     get_args,
@@ -1019,7 +1016,6 @@ class TyperBackend(ClickBackend):
     def wrap(self, fn: Callable) -> Callable:
         self._check_import()
         import click
-        import typer
 
         cmd = self._build_typer_command(fn, click)
 

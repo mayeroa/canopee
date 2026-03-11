@@ -13,15 +13,13 @@ Run with:   python -m pytest tests/test_cli.py -v
 from __future__ import annotations
 
 import sys
-import types
 from pathlib import Path
-from typing import Annotated, Literal, Optional, Union
+from typing import Literal, Optional
 
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
 # ── Minimal ConfigBase stub (replace with `from canopee import ConfigBase`) ─
-import hashlib
 
 class ConfigBase(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", validate_default=True)
@@ -34,7 +32,6 @@ from canopee.cli import (
     FieldInspector,
     _build_overrides,
     _deep_merge,
-    _merge_with_defaults,
     clify,
 )
 

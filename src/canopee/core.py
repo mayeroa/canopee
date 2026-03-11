@@ -22,7 +22,6 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -33,9 +32,8 @@ from typing import (
 from pydantic import BaseModel, ConfigDict, computed_field
 
 if TYPE_CHECKING:
-    from pathlib import Path
 
-    from canopee.sources import Source
+    pass
 
 T = TypeVar("T", bound="ConfigBase")
 

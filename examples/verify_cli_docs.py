@@ -1,6 +1,5 @@
 from canopee import ConfigBase, clify
 from pydantic import Field
-import sys
 
 class OptimizerConfig(ConfigBase):
     lr: float = Field(default=1e-3, description="Learning rate")

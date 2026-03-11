@@ -21,7 +21,6 @@ Format-specific functions are available for power users::
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
