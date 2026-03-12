@@ -21,8 +21,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ── Minimal ConfigBase stub (replace with `from canopee import ConfigBase`) ─
 
+
 class ConfigBase(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", validate_default=True)
+
 
 # ── Import the module under test ────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -39,36 +41,40 @@ from canopee.cli import (
 # Fixtures — config classes
 # ===========================================================================
 
+
 class OptimizerConfig(ConfigBase):
-    lr: float   = Field(default=1e-3, description="Learning rate")
+    lr: float = Field(default=1e-3, description="Learning rate")
     beta: float = 0.9
 
 
 class TrainingConfig(ConfigBase):
-    epochs:    int             = 10
+    epochs: int = 10
     optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
-    verbose:   bool            = True
-    tag:       str             = "baseline"
+    verbose: bool = True
+    tag: str = "baseline"
 
 
 class AllTypesConfig(ConfigBase):
     """Exercises every supported type tag."""
-    count:      int                         = 4
-    ratio:      float                       = 0.5
-    name:       str                         = "default"
-    flag:       bool                        = True
-    mode:       Literal["fast", "slow"]     = "fast"
-    opt_val:    Optional[int]               = None
-    numbers:    list[int]                   = Field(default_factory=lambda: [1, 2, 3])
-    pair:       tuple[float, float]         = (0.0, 1.0)
-    variadic:   tuple[int, ...]             = Field(default_factory=tuple)
+
+    count: int = 4
+    ratio: float = 0.5
+    name: str = "default"
+    flag: bool = True
+    mode: Literal["fast", "slow"] = "fast"
+    opt_val: Optional[int] = None
+    numbers: list[int] = Field(default_factory=lambda: [1, 2, 3])
+    pair: tuple[float, float] = (0.0, 1.0)
+    variadic: tuple[int, ...] = Field(default_factory=tuple)
 
 
 class NestedDeepConfig(ConfigBase):
     class Inner(ConfigBase):
         class Innermost(ConfigBase):
             value: int = 42
+
         deep: Innermost = Field(default_factory=Innermost)
+
     inner: Inner = Field(default_factory=Inner)
 
 
@@ -76,22 +82,22 @@ class NestedDeepConfig(ConfigBase):
 # FieldInspector tests
 # ===========================================================================
 
-class TestFieldInspector:
 
+class TestFieldInspector:
     def setup_method(self):
         self.inspector = FieldInspector()
 
     def test_flat_fields_extracted(self):
         params = self.inspector.extract(TrainingConfig)
-        paths  = {p.dot_path for p in params}
-        assert "epochs"         in paths
-        assert "verbose"        in paths
-        assert "tag"            in paths
+        paths = {p.dot_path for p in params}
+        assert "epochs" in paths
+        assert "verbose" in paths
+        assert "tag" in paths
         # Nested fields flattened
-        assert "optimizer.lr"   in paths
+        assert "optimizer.lr" in paths
         assert "optimizer.beta" in paths
         # The sub-model itself is NOT a leaf
-        assert "optimizer"      not in paths
+        assert "optimizer" not in paths
 
     def test_bool_is_flag(self):
         params = self.inspector.extract(TrainingConfig)
@@ -102,58 +108,58 @@ class TestFieldInspector:
     def test_int_field(self):
         params = self.inspector.extract(TrainingConfig)
         epochs = next(p for p in params if p.dot_path == "epochs")
-        assert epochs.type_tag   == "int"
-        assert epochs.default    == 10
+        assert epochs.type_tag == "int"
+        assert epochs.default == 10
         assert not epochs.required
 
     def test_float_field(self):
         params = self.inspector.extract(TrainingConfig)
         lr = next(p for p in params if p.dot_path == "optimizer.lr")
-        assert lr.type_tag    == "float"
-        assert lr.default     == 1e-3
+        assert lr.type_tag == "float"
+        assert lr.default == 1e-3
         assert lr.description == "Learning rate"
 
     def test_literal_field(self):
-        params  = self.inspector.extract(AllTypesConfig)
-        mode    = next(p for p in params if p.dot_path == "mode")
-        assert mode.type_tag          == "literal"
+        params = self.inspector.extract(AllTypesConfig)
+        mode = next(p for p in params if p.dot_path == "mode")
+        assert mode.type_tag == "literal"
         assert set(mode.choices or []) == {"fast", "slow"}
 
     def test_optional_int(self):
-        params  = self.inspector.extract(AllTypesConfig)
+        params = self.inspector.extract(AllTypesConfig)
         opt_val = next(p for p in params if p.dot_path == "opt_val")
         assert opt_val.type_tag == "int"
         assert not opt_val.required
 
     def test_list_int(self):
-        params  = self.inspector.extract(AllTypesConfig)
+        params = self.inspector.extract(AllTypesConfig)
         numbers = next(p for p in params if p.dot_path == "numbers")
-        assert numbers.type_tag    == "list"
-        assert numbers.inner_type  is int
-        assert numbers.nargs       == "+"
+        assert numbers.type_tag == "list"
+        assert numbers.inner_type is int
+        assert numbers.nargs == "+"
 
     def test_fixed_tuple(self):
         params = self.inspector.extract(AllTypesConfig)
-        pair   = next(p for p in params if p.dot_path == "pair")
-        assert pair.type_tag   == "tuple"
+        pair = next(p for p in params if p.dot_path == "pair")
+        assert pair.type_tag == "tuple"
         assert pair.inner_type is float
-        assert pair.nargs      == 2
+        assert pair.nargs == 2
 
     def test_variadic_tuple(self):
-        params   = self.inspector.extract(AllTypesConfig)
+        params = self.inspector.extract(AllTypesConfig)
         variadic = next(p for p in params if p.dot_path == "variadic")
-        assert variadic.type_tag   == "tuple"
+        assert variadic.type_tag == "tuple"
         assert variadic.inner_type is int
-        assert variadic.nargs      == "+"
+        assert variadic.nargs == "+"
 
     def test_triple_nested(self):
         params = self.inspector.extract(NestedDeepConfig)
-        paths  = {p.dot_path for p in params}
+        paths = {p.dot_path for p in params}
         assert "inner.deep.value" in paths
 
     def test_description_forwarded(self):
         params = self.inspector.extract(TrainingConfig)
-        lr     = next(p for p in params if p.dot_path == "optimizer.lr")
+        lr = next(p for p in params if p.dot_path == "optimizer.lr")
         assert "Learning rate" in lr.description
 
     def test_required_field(self):
@@ -161,7 +167,7 @@ class TestFieldInspector:
             name: str  # no default
 
         params = self.inspector.extract(RequiredConfig)
-        name   = next(p for p in params if p.dot_path == "name")
+        name = next(p for p in params if p.dot_path == "name")
         assert name.required
 
 
@@ -169,14 +175,14 @@ class TestFieldInspector:
 # CastRegistry tests
 # ===========================================================================
 
-class TestCastRegistry:
 
+class TestCastRegistry:
     def _param(self, tag, inner=None, choices=None):
         return CliParam(dot_path="x", type_tag=tag, inner_type=inner, choices=choices)
 
     def test_int(self):
-        assert CastRegistry.cast(self._param("int"), "42")   == 42
-        assert CastRegistry.cast(self._param("int"), "0")    == 0
+        assert CastRegistry.cast(self._param("int"), "42") == 42
+        assert CastRegistry.cast(self._param("int"), "0") == 0
 
     def test_float(self):
         assert CastRegistry.cast(self._param("float"), "3.14") == pytest.approx(3.14)
@@ -219,7 +225,7 @@ class TestCastRegistry:
     def test_json_blob(self):
         p = self._param("json")
         assert CastRegistry.cast(p, '{"key": 1}') == {"key": 1}
-        assert CastRegistry.cast(p, "[1, 2, 3]")  == [1, 2, 3]
+        assert CastRegistry.cast(p, "[1, 2, 3]") == [1, 2, 3]
 
     def test_none_passthrough(self):
         for tag in ("int", "float", "str", "bool", "list"):
@@ -231,27 +237,27 @@ class TestCastRegistry:
 # _build_overrides / _deep_merge
 # ===========================================================================
 
-class TestBuildOverrides:
 
+class TestBuildOverrides:
     def _make_params(self):
         return FieldInspector().extract(TrainingConfig)
 
     def test_top_level_field(self):
-        params    = self._make_params()
+        params = self._make_params()
         namespace = {"epochs": "20"}
-        result    = _build_overrides(namespace, params)
+        result = _build_overrides(namespace, params)
         assert result["epochs"] == 20
 
     def test_nested_field(self):
-        params    = self._make_params()
+        params = self._make_params()
         namespace = {"optimizer__lr": "3e-4"}
-        result    = _build_overrides(namespace, params)
+        result = _build_overrides(namespace, params)
         assert result["optimizer"]["lr"] == pytest.approx(3e-4)
 
     def test_omits_none_defaults(self):
-        params    = self._make_params()
+        params = self._make_params()
         namespace = {}
-        result    = _build_overrides(namespace, params)
+        result = _build_overrides(namespace, params)
         assert result == {}
 
     def test_deep_merge(self):
@@ -269,8 +275,8 @@ class TestBuildOverrides:
 # End-to-end: argparse backend
 # ===========================================================================
 
-class TestArgparseBackend:
 
+class TestArgparseBackend:
     def _run(self, fn, argv):
         """Invoke the clified function with explicit argv."""
         return fn(_argv=argv)
@@ -375,19 +381,26 @@ class TestArgparseBackend:
         def cmd(cfg):
             captured["cfg"] = cfg
 
-        self._run(cmd, [
-            "--epochs", "30",
-            "--optimizer.lr", "5e-4",
-            "--optimizer.beta", "0.99",
-            "--no-verbose",
-            "--tag", "sweep_run",
-        ])
+        self._run(
+            cmd,
+            [
+                "--epochs",
+                "30",
+                "--optimizer.lr",
+                "5e-4",
+                "--optimizer.beta",
+                "0.99",
+                "--no-verbose",
+                "--tag",
+                "sweep_run",
+            ],
+        )
         cfg = captured["cfg"]
-        assert cfg.epochs         == 30
-        assert cfg.optimizer.lr   == pytest.approx(5e-4)
+        assert cfg.epochs == 30
+        assert cfg.optimizer.lr == pytest.approx(5e-4)
         assert cfg.optimizer.beta == pytest.approx(0.99)
-        assert cfg.verbose        is False
-        assert cfg.tag            == "sweep_run"
+        assert cfg.verbose is False
+        assert cfg.tag == "sweep_run"
 
     def test_parser_accessible(self):
         @clify(TrainingConfig, backend="argparse")
@@ -409,26 +422,30 @@ class TestArgparseBackend:
         except SystemExit:
             pass
         help_text = buf.getvalue()
-        assert "--epochs"        in help_text
-        assert "--optimizer.lr"  in help_text
-        assert "--verbose"       in help_text
+        assert "--epochs" in help_text
+        assert "--optimizer.lr" in help_text
+        assert "--verbose" in help_text
 
 
 # ===========================================================================
 # Backend construction (click / typer) — no invocation needed
 # ===========================================================================
 
-class TestBackendConstruction:
 
+class TestBackendConstruction:
     def test_unknown_backend_raises(self):
         with pytest.raises(ValueError, match="Unknown backend"):
+
             @clify(TrainingConfig, backend="magic")
-            def cmd(cfg): pass
+            def cmd(cfg):
+                pass
 
     def test_non_model_raises(self):
         with pytest.raises(TypeError):
+
             @clify(dict)
-            def cmd(cfg): pass
+            def cmd(cfg):
+                pass
 
     def test_click_construction(self):
         """Click command object is created without invocation."""
@@ -438,9 +455,11 @@ class TestBackendConstruction:
             pytest.skip("click not installed")
 
         @clify(TrainingConfig, backend="click")
-        def cmd(cfg): pass
+        def cmd(cfg):
+            pass
 
         import click as _click
+
         assert isinstance(cmd, _click.BaseCommand)
 
     def test_typer_construction(self):
@@ -451,7 +470,8 @@ class TestBackendConstruction:
             pytest.skip("typer not installed")
 
         @clify(TrainingConfig, backend="typer")
-        def cmd(cfg): pass
+        def cmd(cfg):
+            pass
 
         assert hasattr(cmd, "_typer_app")
 
@@ -460,6 +480,7 @@ class TestBackendConstruction:
 # Demo (run directly)
 # ===========================================================================
 
+
 def _demo():
     """Pretty-print inspection results for TrainingConfig."""
     print("\n" + "─" * 60)
@@ -467,13 +488,13 @@ def _demo():
     print("─" * 60)
 
     inspector = FieldInspector()
-    params    = inspector.extract(TrainingConfig)
+    params = inspector.extract(TrainingConfig)
 
     for p in params:
-        flag    = p.flag
+        flag = p.flag
         default = f"  default={p.default!r}" if not p.required else "  REQUIRED"
         choices = f"  choices={p.choices}" if p.choices else ""
-        nargs   = f"  nargs={p.nargs}" if p.nargs else ""
+        nargs = f"  nargs={p.nargs}" if p.nargs else ""
         print(f"  {flag:<30}  [{p.type_tag:<8}]{default}{choices}{nargs}")
 
     print("\n" + "─" * 60)
@@ -482,10 +503,10 @@ def _demo():
 
     params2 = inspector.extract(AllTypesConfig)
     for p in params2:
-        flag    = p.flag
+        flag = p.flag
         default = f"  default={p.default!r}" if not p.required else "  REQUIRED"
         choices = f"  choices={p.choices}" if p.choices else ""
-        nargs   = f"  nargs={p.nargs}" if p.nargs else ""
+        nargs = f"  nargs={p.nargs}" if p.nargs else ""
         print(f"  {flag:<30}  [{p.type_tag:<8}]{default}{choices}{nargs}")
 
     print("\n" + "─" * 60)

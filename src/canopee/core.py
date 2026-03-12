@@ -22,22 +22,12 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterator
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Literal,
-    TypeVar,
-)
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
-if TYPE_CHECKING:
-
-    pass
 
 T = TypeVar("T", bound="ConfigBase")
-
-_Format = Literal["json", "toml", "yaml"]
 
 
 # ---------------------------------------------------------------------------
@@ -85,19 +75,11 @@ class ConfigBase(BaseModel):
         Returns:
             dict[str, Any]: A dictionary representation of the configuration without computed fields.
         """
-
-        def _strip(obj: Any) -> Any:
-            if isinstance(obj, ConfigBase):
-                return {k: _strip(getattr(obj, k)) for k in type(obj).model_fields}
-            if isinstance(obj, list):
-                return [_strip(x) for x in obj]
-            if isinstance(obj, tuple):
-                return tuple(_strip(x) for x in obj)
-            if isinstance(obj, dict):
-                return {k: _strip(v) for k, v in obj.items()}
-            return obj
-
-        return _strip(self)
+        return self.model_dump(
+            mode="json",
+            round_trip=True,
+            exclude=set(type(self).model_computed_fields.keys()) if type(self).model_computed_fields else None,
+        )
 
     # ------------------------------------------------------------------
     # Merge / evolve
@@ -147,6 +129,36 @@ class ConfigBase(BaseModel):
         """
         data = json.dumps(self._dump_for_validation(), sort_keys=True)
         return hashlib.sha256(data.encode()).hexdigest()
+
+    # ------------------------------------------------------------------
+    # Serialization methods (delegates to canopee.serialization)
+    # ------------------------------------------------------------------
+
+    def save(self, path: str | Any, **kwargs: Any) -> Any:
+        """Save this configuration to a file. Format is auto-detected from the extension."""
+        from canopee.serialization import save as _save
+
+        return _save(self, path, **kwargs)
+
+    @classmethod
+    def load(cls: type[T], path: str | Any) -> T:
+        """Load a configuration instance from a file. Format is auto-detected."""
+        from canopee.serialization import load as _load
+
+        return _load(cls, path)
+
+    def dumps(self, fmt: str = "json", **kwargs: Any) -> str:
+        """Serialize this configuration to a string in the given format ('json', 'yaml', 'toml')."""
+        from canopee.serialization import dumps as _dumps
+
+        return _dumps(self, fmt=fmt, **kwargs)
+
+    @classmethod
+    def loads(cls: type[T], fmt: str, text: str) -> T:
+        """Deserialize a configuration instance from a string."""
+        from canopee.serialization import loads as _loads
+
+        return _loads(cls, fmt=fmt, text=text)
 
 
 # ---------------------------------------------------------------------------
@@ -216,8 +228,6 @@ def to_flat(config: ConfigBase) -> dict[str, Any]:
         dict[str, Any]: A flattened dictionary where keys are dot-paths.
     """
     return dict(_flatten(config.model_dump()))
-
-
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ class TrainingConfig(ConfigBase):
     text: dict[str, int] = Field(default_factory=dict)
 
 
-@clify(TrainingConfig, backend='typer', prog='Trainer', description='Train a model')
+@clify(TrainingConfig, backend="typer", prog="Trainer", description="Train a model")
 def main(cfg: TrainingConfig):
     """Main function to train a model."""
     print("Config Loaded:")

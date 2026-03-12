@@ -94,8 +94,10 @@ from typing import (
     get_origin,
 )
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic.fields import FieldInfo
+from pydantic.fields import _Unset as PydanticUndefined
+from pydantic_core import PydanticUndefinedType
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -104,6 +106,7 @@ BackendName = Literal["argparse", "click", "typer"]
 # ---------------------------------------------------------------------------
 # CliParam  ─  backend-agnostic parameter descriptor
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CliParam:
@@ -143,16 +146,16 @@ class CliParam:
         Display name shown in ``--help``.
     """
 
-    dot_path:   str
-    type_tag:   str
-    inner_type: Callable | None       = None
-    default:    Any                   = None
-    required:   bool                  = False
-    description: str                  = ""
-    choices:    list[str] | None      = None
-    is_flag:    bool                  = False
-    nargs:      str | int | None      = None
-    metavar:    str | None            = None
+    dot_path: str
+    type_tag: str
+    inner_type: Callable | None = None
+    default: Any = None
+    required: bool = False
+    description: str = ""
+    choices: list[str] | None = None
+    is_flag: bool = False
+    nargs: str | int | None = None
+    metavar: str | None = None
 
     @property
     def flag(self) -> str:
@@ -174,10 +177,11 @@ class CliParam:
 # Type resolution helpers
 # ---------------------------------------------------------------------------
 
+
 def _is_config_model(tp: Any) -> bool:
     """Return True if *tp* is a Pydantic BaseModel subclass (not the base)."""
     try:
-        return isinstance(tp, type) and issubclass(tp, BaseModel) and tp is not BaseModel
+        return issubclass(tp, BaseModel) and tp is not BaseModel
     except TypeError:
         return False
 
@@ -188,7 +192,7 @@ def _unwrap_optional(tp: Any) -> tuple[bool, Any]:
     Returns ``(False, tp)`` if not Optional.
     """
     origin = get_origin(tp)
-    args   = get_args(tp)
+    args = get_args(tp)
 
     # Union[X, None]  or  X | None  (Python 3.10+)
     if origin is Union or origin is types.UnionType:  # type: ignore[attr-defined]
@@ -242,6 +246,7 @@ def _tuple_element_type(tp: Any) -> tuple[Callable | None, int | str | None]:
 # FieldInspector  ─  walks Pydantic schema, yields CliParam objects
 # ---------------------------------------------------------------------------
 
+
 class FieldInspector:
     """
     Recursively inspect a ``ConfigBase`` (Pydantic v2 ``BaseModel``) class
@@ -268,22 +273,17 @@ class FieldInspector:
             recursing into an optimizer sub-config.
         """
         params: list[CliParam] = []
-        hints  = self._get_hints(model_cls)
+        hints = self._get_hints(model_cls)
 
         for name, field_info in model_cls.model_fields.items():
-            dot_path   = f"{prefix}.{name}" if prefix else name
+            dot_path = f"{prefix}.{name}" if prefix else name
             annotation = hints.get(name, Any)
-            param      = self._inspect_field(dot_path, annotation, field_info)
+            param = self._inspect_field(dot_path, annotation, field_info)
 
             if param is None:
                 # Nested ConfigBase — recurse
                 bare = self._bare_type(annotation)
                 if _is_config_model(bare):
-                    default_factory = (
-                        field_info.default_factory
-                        if field_info.default_factory not in (None, PydanticUndefined)
-                        else None
-                    )
                     params.extend(self.extract(bare, prefix=dot_path))
                 else:
                     # Unknown compound type → JSON blob
@@ -302,6 +302,7 @@ class FieldInspector:
         """Return type hints, falling back gracefully."""
         try:
             import typing
+
             return typing.get_type_hints(model_cls)
         except Exception:
             return {k: v.annotation for k, v in model_cls.model_fields.items()}
@@ -309,11 +310,15 @@ class FieldInspector:
     @staticmethod
     def _default(field_info: FieldInfo) -> tuple[Any, bool]:
         """Return ``(default_value, is_required)``."""
-        if field_info.default is not PydanticUndefined:
-            return field_info.default, False
-        if field_info.default_factory not in (None, PydanticUndefined):  # type: ignore[arg-type]
-            return field_info.default_factory(), False  # type: ignore[misc]
-        return None, True
+        if isinstance(field_info.default, PydanticUndefinedType):
+            # No default — check factory
+            if field_info.default_factory is not None:
+                try:
+                    return field_info.default_factory(), False
+                except Exception:
+                    return None, False
+            return None, True
+        return field_info.default, False
 
     @staticmethod
     def _description(field_info: FieldInfo) -> str:
@@ -336,7 +341,7 @@ class FieldInspector:
         is itself a nested model that should be recursed into.
         """
         default, required = self._default(field_info)
-        desc              = self._description(field_info)
+        desc = self._description(field_info)
         is_optional, inner = _unwrap_optional(annotation)
 
         # ── Nested ConfigBase ──────────────────────────────────────
@@ -344,9 +349,11 @@ class FieldInspector:
         if _is_config_model(bare):
             return None  # caller will recurse
 
+        param: CliParam
+
         # ── bool  →  --flag / --no-flag ───────────────────────────
         if inner is bool:
-            return CliParam(
+            param = CliParam(
                 dot_path=dot_path,
                 type_tag="bool",
                 default=default,
@@ -357,9 +364,8 @@ class FieldInspector:
             )
 
         # ── Literal ───────────────────────────────────────────────
-        choices = _unwrap_literal(inner)
-        if choices is not None:
-            return CliParam(
+        elif (choices := _unwrap_literal(inner)) is not None:
+            param = CliParam(
                 dot_path=dot_path,
                 type_tag="literal",
                 default=str(default) if default is not None else None,
@@ -370,9 +376,8 @@ class FieldInspector:
             )
 
         # ── list[X] ───────────────────────────────────────────────
-        elem = _list_element_type(inner)
-        if elem is not None:
-            return CliParam(
+        elif (elem := _list_element_type(inner)) is not None:
+            param = CliParam(
                 dot_path=dot_path,
                 type_tag="list",
                 inner_type=elem,
@@ -384,9 +389,9 @@ class FieldInspector:
             )
 
         # ── tuple[X, ...] / tuple[X, X] ──────────────────────────
-        tup_elem, tup_nargs = _tuple_element_type(inner)
-        if tup_nargs is not None and tup_elem is not None:
-            return CliParam(
+        elif (tup_res := _tuple_element_type(inner)) and tup_res[0] is not None:
+            tup_elem, tup_nargs = tup_res
+            param = CliParam(
                 dot_path=dot_path,
                 type_tag="tuple",
                 inner_type=tup_elem,
@@ -398,29 +403,27 @@ class FieldInspector:
             )
 
         # ── int / float / str ─────────────────────────────────────
-        for scalar_type in (int, float, str):
-            if inner is scalar_type:
+        else:
+            scalar_type = next((t for t in (int, float, str) if inner is t), None)
+            if scalar_type:
                 tag = scalar_type.__name__
-                return CliParam(
+                param = CliParam(
                     dot_path=dot_path,
                     type_tag=tag,
                     inner_type=scalar_type,
                     default=default,
                     required=required,
-                    description=desc + (" (optional)" if is_optional else ""),
+                    description=desc,
                     metavar=tag.upper(),
                 )
+            else:
+                # ── Fallback: raw JSON blob ───────────────────────────────
+                param = self._json_param(dot_path, field_info)
 
-        # ── Optional[scalar] that we already unwrapped above ─────
         if is_optional:
-            # Try again on the bare inner type
-            bare_param = self._inspect_field(dot_path, inner, field_info)
-            if bare_param is not None:
-                bare_param.description += " (optional, pass 'none' to unset)"
-                return bare_param
+            param.description += " (optional, pass 'none' to unset)"
 
-        # ── Fallback: raw JSON blob ───────────────────────────────
-        return self._json_param(dot_path, field_info)
+        return param
 
     def _json_param(self, dot_path: str, field_info: FieldInfo) -> CliParam:
         default, required = self._default(field_info)
@@ -434,45 +437,10 @@ class FieldInspector:
         )
 
 
-# Pydantic v2 sentinel for "no default given"
-try:
-    from pydantic_core import PydanticUndefinedType
-    from pydantic.fields import _Unset as PydanticUndefined  # type: ignore[attr-defined]
-except ImportError:
-    try:
-        from pydantic.fields import Undefined as PydanticUndefined  # type: ignore[assignment]
-    except ImportError:
-        PydanticUndefined = None  # type: ignore[assignment,misc]
-
-# More robust: check via sentinel object
-try:
-    from pydantic_core import PydanticUndefinedType  # noqa: F811
-    def _is_undefined(v: Any) -> bool:
-        return isinstance(v, PydanticUndefinedType)
-except ImportError:
-    def _is_undefined(v: Any) -> bool:  # type: ignore[misc]
-        return v is None
-
-
-# Patch FieldInspector._default to use the robust sentinel
-def _field_default(field_info: FieldInfo) -> tuple[Any, bool]:
-    from pydantic_core import PydanticUndefinedType
-    if isinstance(field_info.default, PydanticUndefinedType):
-        # No default — check factory
-        if field_info.default_factory is not None:
-            try:
-                return field_info.default_factory(), False
-            except Exception:
-                return None, False
-        return None, True
-    return field_info.default, False
-
-FieldInspector._default = staticmethod(_field_default)  # type: ignore[method-assign]
-
-
 # ---------------------------------------------------------------------------
 # CastRegistry  ─  string → Python coercion, centralised
 # ---------------------------------------------------------------------------
+
 
 class CastRegistry:
     """
@@ -535,74 +503,68 @@ class CastRegistry:
         return raw
 
 
-# ---------------------------------------------------------------------------
-# Override reconstruction
-# ---------------------------------------------------------------------------
-
-def _build_overrides(
-    namespace: dict[str, Any],
-    params: list[CliParam],
-) -> dict[str, Any]:
-    """
-    Convert a flat ``{dest: value}`` namespace from the CLI parser back
-    into a nested dict suitable for ``model_validate``.
-
-    Fields that were not set on the CLI (value is ``None`` and not
-    required) are omitted so Pydantic falls back to the field default.
-
-    dot_path ``"optimizer.lr"``  →  ``{"optimizer": {"lr": 0.001}}``
-    """
-    overrides: dict[str, Any] = {}
-
-    for param in params:
-        raw = namespace.get(param.dest)
-        if raw is None and not param.required:
-            continue
-
-        value = CastRegistry.cast(param, raw)
-        if value is None and not param.required:
-            continue
-
-        # Build nested dict from dot-path
-        parts = param.dot_path.split(".")
-        d = overrides
-        for part in parts[:-1]:
-            d = d.setdefault(part, {})
-        d[parts[-1]] = value
-
-    return overrides
-
-
 def _merge_with_defaults(
     config_cls: type[T],
     overrides: dict[str, Any],
+    params: list[CliParam],
+    config_path: str | None = None,
 ) -> T:
     """
     Construct a *config_cls* instance by merging CLI overrides on top
     of the schema defaults.  Uses ``model_validate`` so all validators run.
     """
-    # Get baseline defaults via a default-constructed instance
-    # (works because all fields must have defaults when CLI is partial)
     try:
-        baseline = config_cls().model_dump(
-            exclude=set(config_cls.model_computed_fields.keys())
-        )
-    except Exception:
-        baseline = {}
+        if config_path:
+            from canopee.serialization import load as _load
 
-    # Deep-merge overrides on top of baseline
-    _deep_merge(baseline, overrides)
-    return config_cls.model_validate(baseline)
+            base_instance = _load(config_cls, config_path)
+            baseline = base_instance._dump_for_validation()
+        else:
+            # Get baseline defaults via a default-constructed instance
+            # (works because all fields must have defaults when CLI is partial)
+            try:
+                baseline = config_cls()._dump_for_validation()
+            except Exception:
+                baseline = {}
+
+        # Cast raw CLI values and deep-merge overrides on top of baseline
+        typed_overrides: dict[str, Any] = {}
+        for param in params:
+            raw = overrides.get(param.dest)
+            if raw is None and not param.required:
+                continue
+
+            value = CastRegistry.cast(param, raw)
+            if value is None and not param.required:
+                continue
+
+            # Build nested dict from dot-path
+            parts = param.dot_path.split(".")
+            d = typed_overrides
+            for part in parts[:-1]:
+                d = d.setdefault(part, {})
+            d[parts[-1]] = value
+
+        _deep_merge(baseline, typed_overrides)
+
+        return config_cls.model_validate(baseline)
+
+    except (ValidationError, ValueError, TypeError) as e:
+        import sys
+        from canopee.errors import pretty_print_error
+
+        if isinstance(e, ValidationError):
+            pretty_print_error(e)
+        else:
+            # Wrap raw cast errors in a pseudo-validation error display
+            print(f"Configuration Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _deep_merge(base: dict, overrides: dict) -> None:
     """Recursively merge *overrides* into *base* in-place."""
     for key, value in overrides.items():
-        if (
-            key in base
-            and isinstance(base[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
             _deep_merge(base[key], value)
         else:
             base[key] = value
@@ -611,6 +573,7 @@ def _deep_merge(base: dict, overrides: dict) -> None:
 # ---------------------------------------------------------------------------
 # Backend ABC
 # ---------------------------------------------------------------------------
+
 
 class Backend(ABC):
     """
@@ -629,9 +592,9 @@ class Backend(ABC):
         prog: str | None = None,
         description: str | None = None,
     ) -> None:
-        self.config_cls  = config_cls
-        self.params      = params
-        self.prog        = prog
+        self.config_cls = config_cls
+        self.params = params
+        self.prog = prog
         self.description = description or f"CLI for {config_cls.__name__}"
 
     @abstractmethod
@@ -644,13 +607,14 @@ class Backend(ABC):
 
     # Shared helper used by all backends
     def _build_config(self, namespace: dict[str, Any]) -> T:
-        overrides = _build_overrides(namespace, self.params)
-        return _merge_with_defaults(self.config_cls, overrides)
+        config_path = namespace.pop("config", None)
+        return _merge_with_defaults(self.config_cls, namespace, self.params, config_path=config_path)
 
 
 # ---------------------------------------------------------------------------
 # ArgparseBackend
 # ---------------------------------------------------------------------------
+
 
 class ArgparseBackend(Backend):
     """
@@ -683,6 +647,9 @@ class ArgparseBackend(Backend):
             description=self.description + ("\n\n" + doc if doc else ""),
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
+        parser.add_argument(
+            "--config", dest="config", type=str, default=argparse.SUPPRESS, help="Path to a base configuration file."
+        )
         group = parser.add_argument_group("config fields")
 
         for param in self.params:
@@ -696,9 +663,9 @@ class ArgparseBackend(Backend):
         param: CliParam,
     ) -> None:
         kwargs: dict[str, Any] = {
-            "dest":    param.dest,
+            "dest": param.dest,
             "default": argparse.SUPPRESS,  # omitted → not in namespace
-            "help":    param.description or "",
+            "help": param.description or "",
         }
 
         if param.is_flag:
@@ -722,12 +689,12 @@ class ArgparseBackend(Backend):
             kwargs["choices"] = param.choices
 
         if param.nargs:
-            kwargs["nargs"]      = param.nargs
-            kwargs["type"]       = param.inner_type or str
-            kwargs["metavar"]    = param.metavar
+            kwargs["nargs"] = param.nargs
+            kwargs["type"] = param.inner_type or str
+            kwargs["metavar"] = param.metavar
         else:
-            kwargs["type"]       = str   # cast happens in CastRegistry
-            kwargs["metavar"]    = param.metavar
+            kwargs["type"] = str  # cast happens in CastRegistry
+            kwargs["metavar"] = param.metavar
 
         if param.required:
             kwargs.pop("default", None)
@@ -738,6 +705,7 @@ class ArgparseBackend(Backend):
 # ---------------------------------------------------------------------------
 # ClickBackend
 # ---------------------------------------------------------------------------
+
 
 class ClickBackend(Backend):
     """
@@ -775,10 +743,10 @@ class ClickBackend(Backend):
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Support _argv= for testing (mirrors the argparse backend)
-            argv       = kwargs.pop("_argv", None)
+            argv = kwargs.pop("_argv", None)
             standalone = kwargs.pop("_standalone", True)
-            cmd.main(args=argv, standalone_mode=standalone,
-                     prog_name=self.prog)
+            cmd.main(args=argv, standalone_mode=standalone, prog_name=self.prog)
+            return cmd.callback.result if hasattr(cmd.callback, "result") else None
 
         wrapper._click_command = cmd  # type: ignore[attr-defined]
         return wrapper
@@ -799,11 +767,22 @@ class ClickBackend(Backend):
         call it directly to obtain the ``click.Command`` it wraps.
         """
         click_params = [self._make_click_option(p, click) for p in self.params]
-        backend      = self
+        click_params.insert(
+            0,
+            click.Option(
+                ["--config"],
+                type=click.Path(exists=True, dir_okay=False),
+                default=None,
+                help="Path to a base configuration file.",
+            ),
+        )
+        backend = self
 
         def callback(**kwargs: Any) -> None:
             cfg = backend._build_config(kwargs)
-            fn(cfg)
+            callback.result = fn(cfg)  # type: ignore[attr-defined]
+
+        callback.result = None  # type: ignore[attr-defined]
 
         return click.Command(
             name=self.prog or fn.__name__,
@@ -826,7 +805,7 @@ class ClickBackend(Backend):
         ``float``         → ``click.FLOAT``
         ``str``/``json``  → ``click.STRING``  (CastRegistry coerces later)
         """
-        tag  = param.type_tag
+        tag = param.type_tag
         dest = param.dest  # e.g. "optimizer__lr"
         flag = param.flag  # e.g. "--optimizer.lr"
 
@@ -921,6 +900,7 @@ class ClickBackend(Backend):
 # TyperBackend
 # ---------------------------------------------------------------------------
 
+
 class TyperBackend(ClickBackend):
     """
     ``typer`` backend.  Requires ``pip install typer``.
@@ -949,70 +929,6 @@ class TyperBackend(ClickBackend):
 
     _required_package: str = "typer"
 
-    # def wrap(self, fn: Callable) -> Callable:
-    #     self._check_import()
-    #     import click
-    #     import typer  # type: ignore[import]
-
-    #     # Build the click.Option list and the config-dispatching callback
-    #     # exactly as ClickBackend does — but stop before creating the
-    #     # click.Command instance.
-    #     click_params = [self._make_click_option(p, click) for p in self.params]
-    #     backend      = self
-
-    #     def callback(**kwargs: Any) -> None:
-    #         cfg = backend._build_config(kwargs)
-    #         fn(cfg)
-
-    #     help_text = inspect.getdoc(fn) or self.description
-
-    #     # Typer's app.command(cls=SomeClass) tells Typer to instantiate
-    #     # *SomeClass* instead of building its own click.Command from a
-    #     # function signature.  This is the public escape hatch for injecting
-    #     # a pre-built click.Command into a Typer app.
-    #     #
-    #     # We create a fresh click.Command subclass per decoration so each
-    #     # @clify usage gets its own isolated params list and callback — no
-    #     # shared mutable state between decorated functions.
-    #     CommandClass = type(
-    #         f"{fn.__name__.title()}Command",
-    #         (click.Command,),
-    #         {
-    #             # Class-level attributes read by __init__
-    #             "_canopee_params":   click_params,
-    #             "_canopee_callback": staticmethod(callback),
-    #             "_canopee_help":     help_text,
-    #             # Override __init__ to wire everything up
-    #             "__init__": _typer_command_init,
-    #         },
-    #     )
-
-    #     app = typer.Typer(
-    #         help=self.description,
-    #         add_completion=False,
-    #         no_args_is_help=False,
-    #     )
-    #     # Register a no-op placeholder function so Typer knows the command
-    #     # name and associates cls= with it.  Typer will instantiate
-    #     # CommandClass instead of building its own command from the placeholder.
-    #     app.command(
-    #         name=self.prog or fn.__name__,
-    #         cls=CommandClass,
-    #     )(lambda: None)  # placeholder — never called; CommandClass.callback runs instead
-
-    #     @functools.wraps(fn)
-    #     def wrapper(*args: Any, **kwargs: Any) -> Any:
-    #         argv       = kwargs.pop("_argv", None)
-    #         standalone = kwargs.pop("_standalone", True)
-    #         app(
-    #             args=argv,
-    #             standalone_mode=standalone,
-    #             prog_name=self.prog or fn.__name__,
-    #         )
-
-    #     wrapper._typer_app = app  # type: ignore[attr-defined]
-    #     return wrapper
-
     def wrap(self, fn: Callable) -> Callable:
         self._check_import()
         import click
@@ -1022,10 +938,10 @@ class TyperBackend(ClickBackend):
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Support _argv= for testing (mirrors the argparse backend)
-            argv       = kwargs.pop("_argv", None)
+            argv = kwargs.pop("_argv", None)
             standalone = kwargs.pop("_standalone", True)
-            cmd.main(args=argv, standalone_mode=standalone,
-                     prog_name=self.prog)
+            cmd.main(args=argv, standalone_mode=standalone, prog_name=self.prog)
+            return cmd.callback.result if hasattr(cmd.callback, "result") else None
 
         wrapper._typer_command = cmd  # type: ignore[attr-defined]
         return wrapper
@@ -1044,11 +960,22 @@ class TyperBackend(ClickBackend):
         import typer
 
         click_params = [self._make_click_option(p, click) for p in self.params]
-        backend      = self
+        click_params.insert(
+            0,
+            click.Option(
+                ["--config"],
+                type=click.Path(exists=True, dir_okay=False),
+                default=None,
+                help="Path to a base configuration file.",
+            ),
+        )
+        backend = self
 
         def callback(**kwargs: Any) -> None:
             cfg = backend._build_config(kwargs)
-            fn(cfg)
+            callback.result = fn(cfg)  # type: ignore[attr-defined]
+
+        callback.result = None  # type: ignore[attr-defined]
 
         return typer.core.TyperCommand(
             name=self.prog or fn.__name__,
@@ -1058,43 +985,14 @@ class TyperBackend(ClickBackend):
         )
 
 
-def _typer_command_init(self: Any, name: str | None = None, **attrs: Any) -> None:
-    """
-    ``__init__`` injected into the per-decoration ``CommandClass``.
-
-    Reads the pre-built params list and callback from class attributes
-    and passes them to ``click.Command.__init__``.  This fires when Typer
-    calls ``CommandClass(name=..., callback=<placeholder>, params=[...], ...)``
-    during ``app()``.
-
-    ``callback`` and ``params`` are explicitly popped from ``attrs`` before
-    forwarding — Typer always passes them from its own build pipeline, but
-    we own both and must not let them conflict with ours.
-    """
-    import click as _click  # local import — click may not be at module level
-
-    attrs.pop("callback", None)  # discard Typer's placeholder lambda
-    attrs.pop("params",   None)  # discard Typer's (empty) params list
-    attrs.pop("help",     None)  # discard Typer's generated help string
-
-    _click.Command.__init__(
-        self,
-        name=name,
-        params=type(self)._canopee_params,
-        callback=type(self)._canopee_callback,
-        help=type(self)._canopee_help,  # always use our help; discard Typer's
-        **attrs,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Backend registry
 # ---------------------------------------------------------------------------
 
 _BACKENDS: dict[str, type[Backend]] = {
     "argparse": ArgparseBackend,
-    "click":    ClickBackend,
-    "typer":    TyperBackend,
+    "click": ClickBackend,
+    "typer": TyperBackend,
 }
 
 
@@ -1106,6 +1004,7 @@ def register_backend(name: str, cls: type[Backend]) -> None:
 # ---------------------------------------------------------------------------
 # clify  ─  the public decorator
 # ---------------------------------------------------------------------------
+
 
 def clify(
     config_cls: type[T],
@@ -1161,26 +1060,19 @@ def clify(
         python train.py --help
     """
 
-    if config_cls is None or not (
-        isinstance(config_cls, type) and issubclass(config_cls, BaseModel)
-    ):
-        raise TypeError(
-            f"clify expects a Pydantic BaseModel subclass, got {config_cls!r}"
-        )
+    if config_cls is None or not (isinstance(config_cls, type) and issubclass(config_cls, BaseModel)):
+        raise TypeError(f"clify expects a Pydantic BaseModel subclass, got {config_cls!r}")
 
     backend_cls = _BACKENDS.get(backend)
     if backend_cls is None:
-        raise ValueError(
-            f"Unknown backend {backend!r}. "
-            f"Available: {list(_BACKENDS)}"
-        )
+        raise ValueError(f"Unknown backend {backend!r}. Available: {list(_BACKENDS)}")
 
     inspector = FieldInspector()
-    params    = inspector.extract(config_cls)
+    params = inspector.extract(config_cls)
 
     def decorator(fn: Callable[[T], Any]) -> Callable[[], Any]:
         desc = description or inspect.getdoc(fn) or f"CLI for {config_cls.__name__}"
-        bk   = backend_cls(
+        bk = backend_cls(
             config_cls=config_cls,
             params=params,
             prog=prog or fn.__name__,

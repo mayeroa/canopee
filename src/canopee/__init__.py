@@ -39,6 +39,7 @@ Quick start::
 from canopee import sweep as sweep
 from canopee.cli import clify, ArgparseBackend, ClickBackend, TyperBackend
 from canopee.core import ConfigBase, diff, evolve, to_flat
+from canopee.errors import pretty_print_error
 from canopee.sources import (
     CLISource,
     DictSource,
@@ -72,6 +73,7 @@ __all__ = [
     "load",
     "dumps",
     "loads",
+    "pretty_print_error",
 ]
 
 __version__ = "0.1.0"

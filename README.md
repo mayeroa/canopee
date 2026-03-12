@@ -26,39 +26,51 @@ Built on top of Pydantic v2, it removes the brittleness of YAMLs, silent mutatio
 ## 🚀 Quickstart
 
 ### Installation
+Using [uv](https://github.com/astral-sh/uv) (recommended):
+```bash
+uv add canopee
+```
+Or with pip:
 ```bash
 pip install canopee
 ```
 
 ### Basic Usage
 
-Subclass `ConfigBase` as you would any Pydantic model. 
+Subclass `ConfigBase` as you would any Pydantic model. You can seamlessly nest configurations and automatically generate a type-safe CLI.
 
 ```python
 from canopee import ConfigBase
-from pydantic import computed_field
+from canopee.cli import clify
+from pydantic import Field
+
+class OptimizerConfig(ConfigBase):
+    learning_rate: float = 1e-3
+    weight_decay: float = 0.0
 
 class TrainingConfig(ConfigBase):
-    learning_rate: float = 1e-3
     epochs: int = 20
     batch_size: int = 128
+    optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
 
-    @computed_field
-    @property
-    def total_steps(self) -> int:
-        return self.epochs * (10_000 // self.batch_size)
+@clify(TrainingConfig, backend="argparse")
+def train(cfg: TrainingConfig):
+    print(f"Training for {cfg.epochs} epochs with LR {cfg.optimizer.learning_rate}")
+    
+    # Easily save to disk (JSON, TOML, YAML supported out-of-the-box)
+    cfg.save("run_config.toml")
 
-# 1. Instantiate (validated instantly)
-cfg = TrainingConfig()
+if __name__ == "__main__":
+    train()
+```
 
-# 2. Evolve (returns a new modified frozen instance, IDE autocomplete works perfectly!)
-fast_cfg = cfg.evolve(epochs=5, learning_rate=5e-3)
+**Run from the command line:**
+```bash
+# Run with default values
+python train.py
 
-# Computed fields naturally update based on the new instance values
-print(fast_cfg.total_steps)
-
-# 3. Save it to disk (JSON, TOML, YAML supported out-of-the-box)
-fast_cfg.save("experiment.toml")
+# Override nested fields natively with IDE autocomplete and type-safety in code
+python train.py --epochs 50 --optimizer.learning_rate 3e-4
 ```
 
 ### Sweeps
@@ -88,4 +100,21 @@ The full documentation—including Guides on advanced `ConfigStore` registries a
 
 ```bash
 uv run zensical serve
+```
+
+## 🏷️ Versioning
+
+Canopee follows [Semantic Versioning 2.0.0](https://semver.org/).
+
+## 📝 Citation
+
+If you use Canopee in your research or project, please cite it as follows:
+
+```BibTeX
+@software{canopee,
+  author = {Alexandre Mayerowitz},
+  title = {Canopee: A type-safe, fluent configuration library for Python},
+  year = {2026},
+  url = {https://github.com/mayeroa/canopee}
+}
 ```
