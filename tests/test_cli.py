@@ -302,8 +302,10 @@ def test_backend_abstract_wrap():
 
 def test_is_config_model_type_error():
     from canopee.cli import _is_config_model
+
     # issubclass(1, BaseModel) raises TypeError
     assert _is_config_model(1) is False
+
 
 def test_field_inspector_compound_json_fallback():
     class CompoundConfig(ConfigBase):
@@ -315,9 +317,10 @@ def test_field_inspector_compound_json_fallback():
     params = inspector.extract(CompoundConfig)
     assert params[0].type_tag == "json"
 
+
 def test_argparse_required_field():
     class ReqConfig(ConfigBase):
-        val: int = Field(...) # Required
+        val: int = Field(...)  # Required
 
     @clify(ReqConfig, backend="argparse")
     def main(cfg):
@@ -327,26 +330,31 @@ def test_argparse_required_field():
     cfg = main(_argv=["--val", "42"])
     assert cfg.val == 42
 
+
 def test_merge_with_defaults_no_defaults_fail(monkeypatch):
     from canopee.cli import _merge_with_defaults
+
     # Trigger line 562 (baseline = {})
     class BadConfig(ConfigBase):
         x: int = 1
+
         def _dump_for_validation(self):
             raise RuntimeError("fail")
-            
+
     # _merge_with_defaults will catch the RuntimeError and set baseline = {}
     exited = []
     monkeypatch.setattr(sys, "exit", lambda code: exited.append(code))
-    
-    _merge_with_defaults(BadConfig, {"x": 1}, []) 
-    # Should NOT have exited if it worked? 
+
+    _merge_with_defaults(BadConfig, {"x": 1}, [])
+    # Should NOT have exited if it worked?
     # Actually if baseline={}, and we have {"x": 1}, it should validate.
     assert exited == []
+
 
 def test_merge_with_defaults_validation_error_pretty(monkeypatch):
     # Ensure line 591 is hit
     from canopee.cli import _merge_with_defaults
+
     exited = []
     monkeypatch.setattr(sys, "exit", lambda code: exited.append(code))
 
@@ -357,39 +365,46 @@ def test_merge_with_defaults_validation_error_pretty(monkeypatch):
     _merge_with_defaults(ReqCfg, {}, [])
     assert 1 in exited
 
+
 def test_cast_registry_json_error():
     # Hit line 534: JSONDecodeError returns raw string
     p = CliParam(dot_path="test", type_tag="json")
     assert CastRegistry.cast(p, "{invalid") == "{invalid"
 
+
 def test_field_inspector_get_hints_exception(monkeypatch):
     import typing
+
     # Hit line 305-306: get_type_hints raises exception
     monkeypatch.setattr(typing, "get_type_hints", lambda obj: raise_err())
-    def raise_err(): raise RuntimeError("no hints")
-    
+
+    def raise_err():
+        raise RuntimeError("no hints")
+
     class HintCfg(ConfigBase):
         x: int = 1
-        
+
     inspector = FieldInspector()
     params = inspector.extract(HintCfg)
     assert params[0].dot_path == "x"
+
 
 def test_cast_registry_json_non_string():
     # Hit line 534: raw is not a string
     p = CliParam(dot_path="test", type_tag="json")
     assert CastRegistry.cast(p, {"already": "dict"}) == {"already": "dict"}
 
+
 def test_import_errors_handling(monkeypatch):
     import sys
     import importlib
     import canopee.cli
-    
+
     # Mock pydantic_core to be missing to trigger lines 438-442 and 450-453
     # We need to reload the module to trigger the top-level try/except
     # But first, let's backup original
     orig_modules = sys.modules.copy()
-    
+
     try:
         # Mock pydantic_core and pydantic.fields missing or incomplete
         monkeypatch.setitem(sys.modules, "pydantic_core", None)
@@ -397,57 +412,56 @@ def test_import_errors_handling(monkeypatch):
         # Just call the functions if we can mock the environment.
         # Actually, the code uses: from pydantic_core import PydanticUndefinedType
         # If we can't reload easily, let's just trust these boilerplate blocks.
-        # But wait, we want 100%. 
-        
+        # But wait, we want 100%.
+
         # Let's try to reload in a subprocess or a controlled way.
         # For now, let's hit 183-184 and 288.
         pass
     finally:
         sys.modules.update(orig_modules)
 
+
 def test_is_config_model_type_error_real():
     from canopee.cli import _is_config_model
+
     # line 183-184
     class NonType:
         pass
+
     # issubclass(NonType(), BaseModel) will raise TypeError
     assert _is_config_model(NonType()) is False
+
 
 def test_field_inspector_extract_else_fallback(monkeypatch):
     # Hit line 288
     from canopee.cli import FieldInspector
+
     inspector = FieldInspector()
-    
+
     class TriggerCfg(ConfigBase):
         data: Any = 1
-        
+
     # Force _inspect_field to return None for 'data'
     orig = inspector._inspect_field
+
     def mock_inspect(dot_path, annotation, field_info):
-        if dot_path == "data": return None
+        if dot_path == "data":
+            return None
         return orig(dot_path, annotation, field_info)
-        
+
     monkeypatch.setattr(inspector, "_inspect_field", mock_inspect)
     params = inspector.extract(TriggerCfg)
     assert params[0].type_tag == "json"
 
 
-
-
 def test_merge_with_defaults_skip_none_cast_result():
     # Hit line 573: value is None after cast and not param.required
     from canopee.cli import _merge_with_defaults
+
     class DefaultCfg(ConfigBase):
         x: str = "keep me"
-        
+
     params = [CliParam(dot_path="x", type_tag="str", required=False)]
     # "none" casts to None
     cfg = _merge_with_defaults(DefaultCfg, {"x": "none"}, params)
     assert cfg.x == "keep me"
-
-
-
-
-
-
-

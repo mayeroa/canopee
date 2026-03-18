@@ -1,109 +1,133 @@
 import pytest
-from canopee.core import ConfigBase
+from canopee.core import ConfigBase, Patch
 from canopee.store import ConfigStore, global_store
 
+# --- Mock Models for Testing ---
+class OptConfig(ConfigBase):
+    lr: float = 1e-3
+    type: str = "adam"
 
-class MyConfig(ConfigBase):
-    val: int = 1
-    name: str = "base"
+class DataConfig(ConfigBase):
+    name: str = "mnist"
+    batch_size: int = 32
 
+class AppConfig(ConfigBase):
+    optimizer: OptConfig = OptConfig()
+    dataset: DataConfig = DataConfig()
+    epochs: int = 10
 
-class OtherConfig(ConfigBase):
-    x: float = 0.0
+# --- Tests ---
 
+def test_store_init():
+    s = ConfigStore("test")
+    assert s.name == "test"
+    assert len(s._entries) == 0
 
-def test_store_basic():
-    store = ConfigStore("test")
-    cfg = MyConfig(val=10)
+def test_store_add_get():
+    s = ConfigStore()
+    opt = OptConfig()
+    s.add("base", opt, group="optimizer")
+    
+    # Successful get
+    res = s.get("base", group="optimizer")
+    assert res == opt
+    
+    # Get with type checking
+    res_typed = s.get("base", group="optimizer", as_type=OptConfig)
+    assert res_typed == opt
+    
+    # Get default group
+    s.add("main", AppConfig())
+    res_main = s.get("main")
+    assert isinstance(res_main, AppConfig)
 
-    # dict access
-    store["base"] = cfg
-    assert store["base"] == cfg
-    assert "base" in store
-    assert len(store) == 1
-    assert list(store) == ["base"]
+def test_store_get_errors():
+    s = ConfigStore()
+    s.add("base", OptConfig(), group="optimizer")
+    
+    # Missing node
+    with pytest.raises(KeyError, match="Config node 'missing' not found in group 'optimizer'"):
+        s.get("missing", group="optimizer")
+        
+    # Wrong type
+    with pytest.raises(TypeError, match="Config node 'base' is a OptConfig, expected AppConfig"):
+        s.get("base", group="optimizer", as_type=AppConfig)
 
-    # typed get
-    assert store.get("base", MyConfig) == cfg
+def test_store_variant_kwargs():
+    s = ConfigStore()
+    s.add("base", OptConfig(lr=1e-3), group="optimizer")
+    
+    # Create variant via kwargs
+    s.variant("fast", base="base", group="optimizer", lr=1e-2)
+    
+    res = s.get("fast", group="optimizer")
+    assert res.lr == 1e-2
 
-    with pytest.raises(TypeError):
-        store.get("base", OtherConfig)
+def test_store_variant_patch():
+    s = ConfigStore()
+    s.add("base", OptConfig(lr=1e-3), group="optimizer")
+    
+    # Create variant via Patch
+    s.variant("fast_patch", base="base", group="optimizer", patch=Patch({"lr": 1e-1}))
+    
+    res = s.get("fast_patch", group="optimizer")
+    assert res.lr == 1e-1
 
-    with pytest.raises(KeyError):
-        store.get("missing")
+def test_store_compose():
+    s = ConfigStore()
+    # Populate groups
+    s.add("adam_fast", OptConfig(lr=1e-2), group="optimizer")
+    s.add("cifar", DataConfig(name="cifar10", batch_size=64), group="dataset")
+    
+    # Populate base
+    s.add("baseline", AppConfig())
+    
+    # Compose
+    composed = s.compose(
+        base="baseline",
+        overrides={
+            "optimizer": "adam_fast",
+            "dataset": "cifar"
+        }
+    )
+    
+    assert isinstance(composed, AppConfig)
+    assert composed.optimizer.lr == 1e-2
+    assert composed.dataset.name == "cifar10"
+    assert composed.dataset.batch_size == 64
+    assert composed.epochs == 10  # unchanged base value
 
+def test_store_list_methods():
+    s = ConfigStore()
+    s.add("adam", OptConfig(), group="optimizer")
+    s.add("sgd", OptConfig(), group="optimizer")
+    s.add("mnist", DataConfig(), group="dataset")
+    s.add("baseline", AppConfig()) # group=None
+    
+    groups = s.list_groups()
+    assert set(groups) == {"optimizer", "dataset", None}
+    
+    opt_nodes = s.list_nodes(group="optimizer")
+    assert set(opt_nodes) == {"adam", "sgd"}
+    
+    none_nodes = s.list_nodes(group=None)
+    assert none_nodes == ["baseline"]
 
-def test_store_registration():
-    store = ConfigStore()
-    cfg = MyConfig(val=1)
+def test_store_clear_and_repr():
+    s = ConfigStore("test")
+    s.add("adam", OptConfig(), group="opt")
+    
+    rep = repr(s)
+    assert "name='test'" in rep
+    assert "groups=1" in rep
+    assert "nodes=1" in rep
+    
+    s.clear()
+    assert len(s.list_groups()) == 0
 
-    store.register("v1", cfg)
-    with pytest.raises(KeyError, match="already registered"):
-        store.register("v1", cfg)
-
-    store.register("v1", MyConfig(val=2), overwrite=True)
-    assert store["v1"].val == 2
-
-
-def test_store_inheritance():
-    store = ConfigStore()
-    store.register("base", MyConfig(val=1, name="base"))
-
-    # inherit and override
-    store.register("child", MyConfig(val=2), parent="base")
-    assert store["child"].val == 2
-    assert store["child"].name == "base"
-
-    with pytest.raises(KeyError, match="Parent config 'missing' not found"):
-        store.register("orphan", MyConfig(), parent="missing")
-
-
-def test_store_lineage():
-    store = ConfigStore()
-    store.register("a", MyConfig(name="a"))
-    store.register("b", MyConfig(name="b"), parent="a")
-    store.register("c", MyConfig(name="c"), parent="b")
-
-    assert store.lineage("c") == ["a", "b", "c"]
-    assert store.lineage("a") == ["a"]
-
-
-def test_store_lineage_cycle():
-    store = ConfigStore()
-    # Manually create a cycle since register() doesn't currently prevent it (it doesn't check ancestry)
-    store.register("a", MyConfig())
-    store.register("b", MyConfig(), parent="a")
-    # Poke into internals to force a cycle for testing the detection logic
-    store._entries["a"].parent_name = "b"
-
-    with pytest.raises(RuntimeError, match="Cycle detected"):
-        store.lineage("a")
-
-
-def test_store_decorator():
-    store = ConfigStore()
-
-    @store.entry("decorated", val=42)
-    class DecoratedConfig(ConfigBase):
-        val: int = 0
-
-    assert store["decorated"].val == 42
-    assert isinstance(store["decorated"], DecoratedConfig)
-
-
-def test_store_utils():
-    store = ConfigStore()
-    store["a"] = MyConfig()
-    store["b"] = MyConfig()
-
-    assert set(store.list()) == {"a", "b"}
-    assert "ConfigStore" in repr(store)
-
+def test_module_level_store():
+    # test the global 'store' instance
     store.clear()
-    assert len(store) == 0
-
-
-def test_global_store():
-    # Verify the singleton is indeed an instance
-    assert isinstance(global_store, ConfigStore)
-    assert global_store.name == "global"
+    store.add("global_test", AppConfig())
+    assert isinstance(store.get("global_test"), AppConfig)
+    store.clear()

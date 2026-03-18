@@ -518,12 +518,12 @@ def _merge_with_defaults(
             from canopee.serialization import load as _load
 
             base_instance = _load(config_cls, config_path)
-            baseline = base_instance._dump_for_validation()
+            baseline = base_instance._canopee_dump()
         else:
             # Get baseline defaults via a default-constructed instance
             # (works because all fields must have defaults when CLI is partial)
             try:
-                baseline = config_cls()._dump_for_validation()
+                baseline = config_cls()._canopee_dump()
             except Exception:
                 baseline = {}
 

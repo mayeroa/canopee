@@ -19,9 +19,10 @@ Built on top of Pydantic v2, it removes the brittleness of YAMLs, silent mutatio
 
 * **Always Valid**: Configs are validated precisely at construction. No runtime surprises.
 * **Immutable**: `ConfigBase` objects are `frozen=True`. They can be hashed, cached, and safely passed across threads.
-* **Type-Safe Evolution**: Evolve new variants purely with Python keywords via the `.evolve(**kwargs)` method.
+* **Collision-Free API**: The core API lives in free functions (or an opt-in proxy), so your field names (like `save`, `load`, `name`) never shadow config methods.
+* **Fluent Evolution**: Evolve variants via the `|` operator, the `evolve()` function, or the `wrap()` proxy.
 * **First-Class Sweeps**: Define hyperparameter search spaces directly over your types, using strategies like *grid*, *random*, or *optuna*.
-* **Symmetric I/O**: Naturally save and load instances via `.toml`, `.yaml`, or `.json` extensions natively, or inject CLI/Env overrides securely.
+* **Symmetric I/O**: naturally save and load instances via `.toml`, `.yaml`, or `.json` extensions.
 
 ## 🚀 Quickstart
 
@@ -37,10 +38,10 @@ pip install canopee
 
 ### Basic Usage
 
-Subclass `ConfigBase` as you would any Pydantic model. You can seamlessly nest configurations and automatically generate a type-safe CLI.
+Subclass `ConfigBase` as you would any Pydantic model. Canopee provides a clean, collision-free API for manipulating your configurations.
 
 ```python
-from canopee import ConfigBase
+from canopee import ConfigBase, Patch, evolve, wrap, save
 from canopee.cli import clify
 from pydantic import Field
 
@@ -53,12 +54,26 @@ class TrainingConfig(ConfigBase):
     batch_size: int = 128
     optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
 
-@clify(TrainingConfig, backend="argparse")
+# --- 1. Evolution ---
+cfg = TrainingConfig()
+
+# Keyword style (free function)
+cfg2 = evolve(cfg, epochs=50, optimizer__learning_rate=3e-4)
+
+# Merge operator (infix)
+cfg3 = cfg | {"epochs": 50}
+cfg4 = cfg | Patch({"optimizer.learning_rate": 3e-4})
+
+# Fluent style (opt-in proxy)
+cfg5 = wrap(cfg).evolve(epochs=100).apply({"batch_size": 64}).unwrap()
+
+# --- 2. CLI and I/O ---
+@clify(TrainingConfig)
 def train(cfg: TrainingConfig):
-    print(f"Training for {cfg.epochs} epochs with LR {cfg.optimizer.learning_rate}")
+    print(f"Training for {cfg.epochs} epochs")
     
-    # Easily save to disk (JSON, TOML, YAML supported out-of-the-box)
-    cfg.save("run_config.toml")
+    # Save using free functions to avoid name shadowing
+    save(cfg, "run_config.toml")
 
 if __name__ == "__main__":
     train()

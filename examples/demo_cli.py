@@ -4,7 +4,7 @@ from pydantic import Field
 
 
 class OptimizerConfig(ConfigBase):
-    lr: float = Field(default=1e-3, description="Learning rate")
+    lr: float = Field(default=1e-3, description="Learning rate", gt=0, lt=1)
     beta: float = Field(default=0.9, description="Beta value")
 
 
@@ -18,7 +18,7 @@ class TrainingConfig(ConfigBase):
     text: dict[str, int] = Field(default_factory=dict)
 
 
-@clify(TrainingConfig, backend="typer", prog="Trainer", description="Train a model")
+@clify(TrainingConfig, backend="typer", description="Train a model")
 def main(cfg: TrainingConfig):
     """Main function to train a model."""
     print("Config Loaded:")

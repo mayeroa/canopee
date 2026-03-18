@@ -120,7 +120,7 @@ class ConfigStore:
                 parent_entry = self._entries.get(parent)
                 if parent_entry is None:
                     raise KeyError(f"Parent config '{parent}' not found in store.")
-                child_data = config._dump_for_validation()
+                child_data = config.model_dump(exclude_computed_fields=True)
                 resolved = parent_entry.config | child_data
 
             self._entries[name] = _ConfigStoreEntry(

@@ -2,34 +2,138 @@
 canopee.serialization
 ~~~~~~~~~~~~~~~~~~~~~
 
-Round-trip serialization for :class:`~canopee.core.ConfigBase` instances.
+Pure-function serialisation for :class:`~canopee.core.ConfigBase` instances.
 
-Supported formats: JSON, TOML, YAML.
+Every public name is a free function — no classes, no state.  The module is
+organised in three layers:
 
-Primary API (used by ConfigBase.save/load/dumps/loads)::
+**Layer 1 — dict round-trip** (format-agnostic, always available)::
 
-    save(config, "run.toml")
-    load(MyConfig, "run.toml")
-    dumps(config, "yaml")
-    loads(MyConfig, "toml", text)
+    data = to_dict(cfg)                # ConfigBase  → plain dict
+    cfg  = from_dict(MyConfig, data)   # plain dict  → ConfigBase
 
-Format-specific functions are available for power users::
+**Layer 2 — string round-trip** (one pair per format)::
 
-    from canopee.serialization import to_json, from_toml, dumps_yaml
+    text = to_json_str(cfg)
+    text = to_yaml_str(cfg)            # requires: pip install pyyaml
+    text = to_toml_str(cfg)            # requires: pip install tomli-w
+
+    cfg  = from_json_str(MyConfig, text)
+    cfg  = from_yaml_str(MyConfig, text)
+    cfg  = from_toml_str(MyConfig, text)
+
+**Layer 3 — file I/O** (one pair per format + auto-dispatch)::
+
+    save_json(cfg, "run.json")
+    save_yaml(cfg, "run.yaml")
+    save_toml(cfg, "run.toml")
+
+    cfg = load_json(MyConfig, "run.json")
+    cfg = load_yaml(MyConfig, "run.yaml")
+    cfg = load_toml(MyConfig, "run.toml")
+
+    # Or let the extension decide:
+    save(cfg, "run.toml")
+    cfg = load(MyConfig, "run.yaml")
+
+TOML and ``None``
+-----------------
+TOML has no null type.  By default, ``None`` values are **silently dropped**
+when serialising to TOML.  Pass ``none_handling="raise"`` to get an error
+instead, or ``none_handling="null_str"`` to serialise them as the string
+``"null"`` for debugging::
+
+    to_toml_str(cfg, none_handling="raise")
+
+Optional dependencies
+---------------------
+- YAML support: ``pip install pyyaml``
+- TOML write:   ``pip install tomli-w``
+  (TOML read uses the stdlib ``tomllib`` module, Python >= 3.11.)
 """
 
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
-from canopee.core import ConfigBase
+from canopee.core import ConfigBase, _dump
 
-_T = TypeVar("_T", bound=ConfigBase)
+# ---------------------------------------------------------------------------
+# Public types
+# ---------------------------------------------------------------------------
+
+T = TypeVar("T", bound=ConfigBase)
 
 PathLike = str | Path
-_Format = Literal["json", "toml", "yaml"]
+
+#: How ``None`` values are handled when serialising to TOML, which has no
+#: native null type.
+#:
+#: ``"drop"``     — silently omit the key (default).
+#: ``"raise"``    — raise :exc:`ValueError` if any ``None`` is encountered.
+#: ``"null_str"`` — serialise ``None`` as the string ``"null"``.
+NoneHandling = Literal["drop", "raise", "null_str"]
+
+#: Supported file extensions for auto-dispatch in :func:`save` / :func:`load`.
+SUPPORTED_EXTENSIONS: tuple[str, ...] = (".json", ".yaml", ".yml", ".toml")
+
+#: Supported format names (informational).
+SUPPORTED_FORMATS: tuple[str, ...] = ("json", "yaml", "toml")
+
+
+# ---------------------------------------------------------------------------
+# Layer 1 — dict round-trip
+# ---------------------------------------------------------------------------
+
+
+def to_dict(config: ConfigBase) -> dict[str, Any]:
+    """Convert *config* to a plain, JSON-serialisable dict.
+
+    Computed fields (e.g. ``fingerprint``) are excluded — the result contains
+    only the regular fields needed to reconstruct the config via
+    :func:`from_dict`.  Nested ``ConfigBase`` sub-models are recursively
+    converted to plain dicts.
+
+    Args:
+        config: Any :class:`~canopee.core.ConfigBase` instance.
+
+    Returns:
+        A plain ``dict[str, Any]`` with no Pydantic objects at any level.
+
+    Example::
+
+        data = to_dict(cfg)
+        # {"epochs": 10, "optimizer": {"lr": 0.001, "beta": 0.9}, ...}
+    """
+    return _dump(config)
+
+
+def from_dict(cls: type[T], data: dict[str, Any]) -> T:
+    """Reconstruct a *cls* instance from a plain dict.
+
+    Validates the data through Pydantic — field types are coerced and
+    unknown keys are rejected (``extra="forbid"`` from
+    :class:`~canopee.core.ConfigBase`).
+
+    Args:
+        cls:  The :class:`~canopee.core.ConfigBase` subclass to instantiate.
+        data: A plain dict, typically produced by :func:`to_dict` or loaded
+              from a file.
+
+    Returns:
+        A validated, frozen instance of *cls*.
+
+    Raises:
+        pydantic.ValidationError: If *data* fails validation against *cls*.
+
+    Example::
+
+        cfg = from_dict(TrainingConfig, {"epochs": 20, "optimizer": {"lr": 3e-4}})
+    """
+    return cls.model_validate(data)
 
 
 # ---------------------------------------------------------------------------
@@ -37,141 +141,175 @@ _Format = Literal["json", "toml", "yaml"]
 # ---------------------------------------------------------------------------
 
 
-def _to_path(p: PathLike) -> Path:
-    if isinstance(p, Path):
-        return p
-    return Path(p)
+class _DropType:
+    """Singleton sentinel used by :func:`_sanitize_toml` to mark values for omission."""
+
+    _instance: _DropType | None = None
+
+    def __new__(cls) -> _DropType:
+        """Return the single shared instance."""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        """Return ``<DROP>``."""
+        return "<DROP>"
 
 
-def _load_yaml():
+_DROP = _DropType()
+
+
+def _require_yaml() -> Any:
+    """Import and return PyYAML, raising an :exc:`ImportError` with install hint if absent."""
     try:
         import yaml
 
         return yaml
     except ImportError as exc:
-        raise ImportError("YAML support requires PyYAML: pip install pyyaml") from exc
+        raise ImportError("YAML support requires PyYAML.  Install it with:  pip install pyyaml") from exc
 
 
-def _load_toml_writer():
+def _require_tomli_w() -> Any:
+    """Import and return tomli-w, raising an :exc:`ImportError` with install hint if absent."""
     try:
         import tomli_w
 
         return tomli_w
     except ImportError as exc:
-        raise ImportError("Writing TOML requires tomli-w: pip install tomli-w") from exc
+        raise ImportError("Writing TOML requires tomli-w.  Install it with:  pip install tomli-w") from exc
 
 
-def _load_toml_reader():
-    import tomllib
+def _sanitize_toml(
+    obj: Any,
+    *,
+    none_handling: NoneHandling,
+    path: str = "",
+) -> Any:
+    """Recursively prepare *obj* for TOML serialisation.
 
-    return tomllib
+    TOML has no null type, so ``None`` values are handled according to
+    *none_handling*:
 
+    - ``"drop"``     — return :data:`_DROP` so the caller omits the key.
+    - ``"raise"``    — raise :exc:`ValueError` immediately.
+    - ``"null_str"`` — replace with the string ``"null"``.
 
-class _Omit:
-    """Sentinel for values that must be omitted from TOML output (e.g. None)."""
+    Args:
+        obj:           The value to sanitise.
+        none_handling: Strategy for ``None`` values.
+        path:          Dot-path of *obj* in the original structure (for error messages).
 
+    Returns:
+        A TOML-safe value, or :data:`_DROP` if the caller should omit this key.
 
-_OMIT = _Omit()
-
-
-def _sanitize_for_toml(obj: Any) -> Any:
+    Raises:
+        ValueError: If *none_handling* is ``"raise"`` and a ``None`` is found.
+    """
     if obj is None:
-        return _OMIT
+        if none_handling == "raise":
+            location = f" at {path!r}" if path else ""
+            raise ValueError(
+                f"None value{location} cannot be serialised to TOML.  "
+                "Use none_handling='drop' to omit it silently, or "
+                "none_handling='null_str' to keep it as a string."
+            )
+        return "null" if none_handling == "null_str" else _DROP
+
     if isinstance(obj, dict):
-        return {str(k): v2 for k, v in obj.items() if (v2 := _sanitize_for_toml(v)) is not _OMIT}
+        result: dict[str, Any] = {}
+        for k, v in obj.items():
+            child_path = f"{path}.{k}" if path else str(k)
+            sanitised = _sanitize_toml(v, none_handling=none_handling, path=child_path)
+            if sanitised is not _DROP:
+                result[str(k)] = sanitised
+        return result
+
     if isinstance(obj, (list, tuple)):
-        return [item for item in (_sanitize_for_toml(x) for x in obj) if item is not _OMIT]
+        child_items = []
+        for i, v in enumerate(obj):
+            child_path = f"{path}.{i}" if path else str(i)
+            sanitised = _sanitize_toml(v, none_handling=none_handling, path=child_path)
+            if sanitised is not _DROP:
+                child_items.append(sanitised)
+        return child_items
+
     return obj
 
 
-def _dump_data(config: ConfigBase, *, include_computed: bool = False) -> dict[str, Any]:
-    if not include_computed:
-        return config._dump_for_validation()
-    return config.model_dump()
+def _to_path(p: PathLike) -> Path:
+    """Coerce *p* to a :class:`~pathlib.Path`."""
+    return p if isinstance(p, Path) else Path(p)
 
 
 # ---------------------------------------------------------------------------
-# JSON
+# Layer 2 — string round-trip
 # ---------------------------------------------------------------------------
 
 
-def dumps_json(config: ConfigBase, *, indent: int = 2, include_computed: bool = False) -> str:
-    """Serialise a configuration to a JSON string.
+def to_json_str(config: ConfigBase, *, indent: int = 2) -> str:
+    """Serialise *config* to a JSON string.
 
     Args:
-        config (ConfigBase): The configuration to serialise.
-        indent (int, optional): Indentation level for JSON. Defaults to 2.
-        include_computed (bool, optional): Whether to include computed fields. Defaults to False.
+        config: The config to serialise.
+        indent: Number of spaces for indentation. Defaults to ``2``.
 
     Returns:
-        str: The JSON representation of the configuration.
+        A pretty-printed, UTF-8–safe JSON string.
+
+    Example::
+
+        text = to_json_str(cfg)
+        text = to_json_str(cfg, indent=4)
     """
-    return json.dumps(_dump_data(config, include_computed=include_computed), indent=indent, ensure_ascii=False)
+    return json.dumps(to_dict(config), indent=indent, ensure_ascii=False)
 
 
-def loads_json(cls: type[_T], text: str) -> _T:
-    """Deserialise a JSON string into a configuration instance.
+def from_json_str(cls: type[T], text: str) -> T:
+    """Deserialise a JSON string into an instance of *cls*.
 
     Args:
-        cls (type[_T]): The configuration class to instantiate.
-        text (str): The JSON string to deserialise.
+        cls:  The :class:`~canopee.core.ConfigBase` subclass to instantiate.
+        text: A JSON string produced by :func:`to_json_str`.
 
     Returns:
-        _T: The deserialised configuration instance.
+        A validated, frozen instance of *cls*.
+
+    Raises:
+        pydantic.ValidationError: If the data fails validation.
+        json.JSONDecodeError:     If *text* is not valid JSON.
     """
     return cls.model_validate_json(text)
 
 
-def to_json(config: ConfigBase, path: PathLike, *, indent: int = 2, include_computed: bool = False) -> Path:
-    """Write a configuration to a JSON file.
+def to_yaml_str(config: ConfigBase) -> str:
+    """Serialise *config* to a YAML string.
+
+    A metadata header is prepended as YAML comments so the class and
+    fingerprint are visible when the file is inspected::
+
+        # canopee config
+        # class: TrainingConfig
+        # fingerprint: a3f9c12e4b6d8071
+
+    The header is harmless to the YAML parser and is ignored by
+    :func:`from_yaml_str`.
+
+    Requires ``pyyaml`` (``pip install pyyaml``).
 
     Args:
-        config (ConfigBase): The configuration to write.
-        path (PathLike): The destination file path.
-        indent (int, optional): Indentation level for JSON. Defaults to 2.
-        include_computed (bool, optional): Whether to include computed fields. Defaults to False.
+        config: The config to serialise.
 
     Returns:
-        Path: The path where the file was written.
+        A YAML string with a Canopée metadata header.
+
+    Raises:
+        ImportError: If PyYAML is not installed.
     """
-    p = _to_path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(dumps_json(config, indent=indent, include_computed=include_computed), encoding="utf-8")
-    return p
-
-
-def from_json(cls: type[_T], path: PathLike) -> _T:
-    """Load a configuration instance from a JSON file.
-
-    Args:
-        cls (type[_T]): The configuration class to instantiate.
-        path (PathLike): The file path to load from.
-
-    Returns:
-        _T: The loaded configuration instance.
-    """
-    return loads_json(cls, _to_path(path).read_text(encoding="utf-8"))
-
-
-# ---------------------------------------------------------------------------
-# YAML
-# ---------------------------------------------------------------------------
-
-
-def dumps_yaml(config: ConfigBase, *, include_computed: bool = False) -> str:
-    """Serialise a configuration to a YAML string.
-
-    Args:
-        config (ConfigBase): The configuration to serialise.
-        include_computed (bool, optional): Whether to include computed fields. Defaults to False.
-
-    Returns:
-        str: The YAML representation of the configuration.
-    """
-    yaml = _load_yaml()
+    yaml = _require_yaml()
     header = f"# canopee config\n# class: {type(config).__qualname__}\n# fingerprint: {config.fingerprint}\n"
     body = yaml.dump(
-        _dump_data(config, include_computed=include_computed),
+        to_dict(config),
         default_flow_style=False,
         allow_unicode=True,
         sort_keys=False,
@@ -179,217 +317,273 @@ def dumps_yaml(config: ConfigBase, *, include_computed: bool = False) -> str:
     return header + body
 
 
-def loads_yaml(cls: type[_T], text: str) -> _T:
-    """Deserialise a YAML string into a configuration instance.
+def from_yaml_str(cls: type[T], text: str) -> T:
+    """Deserialise a YAML string into an instance of *cls*.
+
+    The Canopée metadata header (comment lines) is safely ignored by the
+    YAML parser.
+
+    Requires ``pyyaml`` (``pip install pyyaml``).
 
     Args:
-        cls (type[_T]): The configuration class to instantiate.
-        text (str): The YAML string to deserialise.
+        cls:  The :class:`~canopee.core.ConfigBase` subclass to instantiate.
+        text: A YAML string produced by :func:`to_yaml_str`.
 
     Returns:
-        _T: The deserialised configuration instance.
+        A validated, frozen instance of *cls*.
+
+    Raises:
+        ImportError:              If PyYAML is not installed.
+        pydantic.ValidationError: If the data fails validation.
     """
-    return cls.model_validate(_load_yaml().safe_load(text))
+    return from_dict(cls, _require_yaml().safe_load(text))
 
 
-def to_yaml(config: ConfigBase, path: PathLike, *, include_computed: bool = False) -> Path:
-    """Write a configuration to a YAML file.
+def to_toml_str(
+    config: ConfigBase,
+    *,
+    none_handling: NoneHandling = "drop",
+) -> str:
+    """Serialise *config* to a TOML string.
+
+    TOML has no null type, so ``None`` values are handled according to
+    *none_handling* (default: silently drop the key).
+
+    Requires ``tomli-w`` (``pip install tomli-w``).
 
     Args:
-        config (ConfigBase): The configuration to write.
-        path (PathLike): The destination file path.
-        include_computed (bool, optional): Whether to include computed fields. Defaults to False.
+        config:        The config to serialise.
+        none_handling: Strategy for ``None`` values:
+
+                       - ``"drop"`` *(default)* — omit the key silently.
+                       - ``"raise"``             — raise :exc:`ValueError`.
+                       - ``"null_str"``          — write ``"null"`` (string).
 
     Returns:
-        Path: The path where the file was written.
+        A TOML string.
+
+    Raises:
+        ImportError:  If tomli-w is not installed.
+        ValueError:   If *none_handling* is ``"raise"`` and a ``None`` is found.
+
+    Example::
+
+        text = to_toml_str(cfg)
+        text = to_toml_str(cfg, none_handling="raise")
+    """
+    sanitised = _sanitize_toml(to_dict(config), none_handling=none_handling)
+    return _require_tomli_w().dumps(sanitised)
+
+
+def from_toml_str(cls: type[T], text: str) -> T:
+    """Deserialise a TOML string into an instance of *cls*.
+
+    Uses the stdlib ``tomllib`` module — no extra dependency required
+    (Python >= 3.11).
+
+    Args:
+        cls:  The :class:`~canopee.core.ConfigBase` subclass to instantiate.
+        text: A TOML string produced by :func:`to_toml_str`.
+
+    Returns:
+        A validated, frozen instance of *cls*.
+
+    Raises:
+        pydantic.ValidationError: If the data fails validation.
+        tomllib.TOMLDecodeError:  If *text* is not valid TOML.
+    """
+    return from_dict(cls, tomllib.loads(text))
+
+
+# ---------------------------------------------------------------------------
+# Layer 3 — file I/O
+# ---------------------------------------------------------------------------
+
+
+def save_json(config: ConfigBase, path: PathLike, *, indent: int = 2) -> Path:
+    """Write *config* as JSON to *path*, creating parent directories as needed.
+
+    Args:
+        config: The config to write.
+        path:   Destination file path.
+        indent: JSON indentation width. Defaults to ``2``.
+
+    Returns:
+        The resolved :class:`~pathlib.Path` that was written.
     """
     p = _to_path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(dumps_yaml(config, include_computed=include_computed), encoding="utf-8")
+    p.write_text(to_json_str(config, indent=indent), encoding="utf-8")
     return p
 
 
-def from_yaml(cls: type[_T], path: PathLike) -> _T:
-    """Load a configuration instance from a YAML file.
+def load_json(cls: type[T], path: PathLike) -> T:
+    """Load a *cls* instance from the JSON file at *path*.
 
     Args:
-        cls (type[_T]): The configuration class to instantiate.
-        path (PathLike): The file path to load from.
+        cls:  The :class:`~canopee.core.ConfigBase` subclass to instantiate.
+        path: Path to a JSON file written by :func:`save_json`.
 
     Returns:
-        _T: The loaded configuration instance.
+        A validated, frozen instance of *cls*.
     """
-    return loads_yaml(cls, _to_path(path).read_text(encoding="utf-8"))
+    return from_json_str(cls, _to_path(path).read_text(encoding="utf-8"))
 
 
-# ---------------------------------------------------------------------------
-# TOML
-# ---------------------------------------------------------------------------
+def save_yaml(config: ConfigBase, path: PathLike) -> Path:
+    """Write *config* as YAML to *path*, creating parent directories as needed.
 
-
-def dumps_toml(config: ConfigBase, *, include_computed: bool = False) -> str:
-    """Serialise a configuration to a TOML string.
+    Requires ``pyyaml`` (``pip install pyyaml``).
 
     Args:
-        config (ConfigBase): The configuration to serialise.
-        include_computed (bool, optional): Whether to include computed fields. Defaults to False.
+        config: The config to write.
+        path:   Destination file path.
 
     Returns:
-        str: The TOML representation of the configuration.
-    """
-    return _load_toml_writer().dumps(_sanitize_for_toml(_dump_data(config, include_computed=include_computed)))
+        The resolved :class:`~pathlib.Path` that was written.
 
-
-def loads_toml(cls: type[_T], text: str) -> _T:
-    """Deserialise a TOML string into a configuration instance.
-
-    Args:
-        cls (type[_T]): The configuration class to instantiate.
-        text (str): The TOML string to deserialise.
-
-    Returns:
-        _T: The deserialised configuration instance.
-    """
-    return cls.model_validate(_load_toml_reader().loads(text))
-
-
-def to_toml(config: ConfigBase, path: PathLike, *, include_computed: bool = False) -> Path:
-    """Write a configuration to a TOML file.
-
-    Args:
-        config (ConfigBase): The configuration to write.
-        path (PathLike): The destination file path.
-        include_computed (bool, optional): Whether to include computed fields. Defaults to False.
-
-    Returns:
-        Path: The path where the file was written.
+    Raises:
+        ImportError: If PyYAML is not installed.
     """
     p = _to_path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(dumps_toml(config, include_computed=include_computed), encoding="utf-8")
+    p.write_text(to_yaml_str(config), encoding="utf-8")
     return p
 
 
-def from_toml(cls: type[_T], path: PathLike) -> _T:
-    """Load a configuration instance from a TOML file.
+def load_yaml(cls: type[T], path: PathLike) -> T:
+    """Load a *cls* instance from the YAML file at *path*.
+
+    Requires ``pyyaml`` (``pip install pyyaml``).
 
     Args:
-        cls (type[_T]): The configuration class to instantiate.
-        path (PathLike): The file path to load from.
+        cls:  The :class:`~canopee.core.ConfigBase` subclass to instantiate.
+        path: Path to a YAML file written by :func:`save_yaml`.
 
     Returns:
-        _T: The loaded configuration instance.
+        A validated, frozen instance of *cls*.
+
+    Raises:
+        ImportError: If PyYAML is not installed.
     """
-    return loads_toml(cls, _to_path(path).read_text(encoding="utf-8"))
+    return from_yaml_str(cls, _to_path(path).read_text(encoding="utf-8"))
+
+
+def save_toml(
+    config: ConfigBase,
+    path: PathLike,
+    *,
+    none_handling: NoneHandling = "drop",
+) -> Path:
+    """Write *config* as TOML to *path*, creating parent directories as needed.
+
+    Requires ``tomli-w`` (``pip install tomli-w``).
+
+    Args:
+        config:        The config to write.
+        path:          Destination file path.
+        none_handling: How to handle ``None`` values. Defaults to ``"drop"``.
+
+    Returns:
+        The resolved :class:`~pathlib.Path` that was written.
+
+    Raises:
+        ImportError: If tomli-w is not installed.
+        ValueError:  If *none_handling* is ``"raise"`` and a ``None`` is found.
+    """
+    p = _to_path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(to_toml_str(config, none_handling=none_handling), encoding="utf-8")
+    return p
+
+
+def load_toml(cls: type[T], path: PathLike) -> T:
+    """Load a *cls* instance from the TOML file at *path*.
+
+    Args:
+        cls:  The :class:`~canopee.core.ConfigBase` subclass to instantiate.
+        path: Path to a TOML file written by :func:`save_toml`.
+
+    Returns:
+        A validated, frozen instance of *cls*.
+    """
+    return from_toml_str(cls, _to_path(path).read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
-# Dispatchers — the primary public API
+# Auto-dispatch — extension-based save / load
 # ---------------------------------------------------------------------------
 
-_SAVERS = {
-    ".json": to_json,
-    ".toml": to_toml,
-    ".yaml": to_yaml,
-    ".yml": to_yaml,
+_SAVERS: dict[str, Any] = {
+    ".json": save_json,
+    ".yaml": save_yaml,
+    ".yml": save_yaml,
+    ".toml": save_toml,
 }
 
-_LOADERS = {
-    ".json": from_json,
-    ".toml": from_toml,
-    ".yaml": from_yaml,
-    ".yml": from_yaml,
-}
-
-_DUMPS = {
-    "json": dumps_json,
-    "toml": dumps_toml,
-    "yaml": dumps_yaml,
-}
-
-_LOADS = {
-    "json": loads_json,
-    "toml": loads_toml,
-    "yaml": loads_yaml,
+_LOADERS: dict[str, Any] = {
+    ".json": load_json,
+    ".yaml": load_yaml,
+    ".yml": load_yaml,
+    ".toml": load_toml,
 }
 
 
 def save(config: ConfigBase, path: PathLike, **kwargs: Any) -> Path:
-    """Save a configuration to a path, auto-detecting format from extension.
+    """Save *config* to *path*, inferring the format from the file extension.
+
+    Delegates to :func:`save_json`, :func:`save_yaml`, or :func:`save_toml`
+    based on the extension.  Extra keyword arguments are forwarded to the
+    format-specific function unchanged.
 
     Args:
-        config (ConfigBase): The configuration to save.
-        path (PathLike): The destination file path.
-        **kwargs (Any): Additional keyword arguments passed to the specific format writer.
+        config:   The config to save.
+        path:     Destination file path (extension determines format).
+        **kwargs: Forwarded to the format saver — e.g. ``indent=4`` for JSON,
+                  ``none_handling="raise"`` for TOML.
 
     Returns:
-        Path: The path where the file was saved.
+        The resolved :class:`~pathlib.Path` that was written.
 
     Raises:
-        ValueError: If the file extension is not supported.
+        ValueError: If the extension is not in :data:`SUPPORTED_EXTENSIONS`.
+
+    Example::
+
+        save(cfg, "run.toml")
+        save(cfg, "run.json", indent=4)
+        save(cfg, "run.toml", none_handling="raise")
     """
     ext = _to_path(path).suffix.lower()
-    writer = _SAVERS.get(ext)
-    if writer is None:
-        raise ValueError(f"Unsupported extension '{ext}'. Choose from: {list(_SAVERS)}")
-    return writer(config, path, **kwargs)
+    saver = _SAVERS.get(ext)
+    if saver is None:
+        raise ValueError(f"Unsupported extension {ext!r}. Supported: {SUPPORTED_EXTENSIONS}")
+    return saver(config, path, **kwargs)
 
 
-def load(cls: type[_T], path: PathLike) -> _T:
-    """Load a configuration instance from a path, auto-detecting format.
+def load(cls: type[T], path: PathLike) -> T:
+    """Load a *cls* instance from *path*, inferring the format from the extension.
+
+    Delegates to :func:`load_json`, :func:`load_yaml`, or :func:`load_toml`
+    based on the extension.
 
     Args:
-        cls (type[_T]): The configuration class to instantiate.
-        path (PathLike): The file path to load from.
+        cls:  The :class:`~canopee.core.ConfigBase` subclass to instantiate.
+        path: Path to a config file (extension determines format).
 
     Returns:
-        _T: The loaded configuration instance.
+        A validated, frozen instance of *cls*.
 
     Raises:
-        ValueError: If the file extension is not supported.
+        ValueError: If the extension is not in :data:`SUPPORTED_EXTENSIONS`.
+
+    Example::
+
+        cfg = load(TrainingConfig, "run.toml")
+        cfg = load(TrainingConfig, "run.yaml")
     """
     ext = _to_path(path).suffix.lower()
-    reader = _LOADERS.get(ext)
-    if reader is None:
-        raise ValueError(f"Unsupported extension '{ext}'. Choose from: {list(_LOADERS)}")
-    return reader(cls, path)
-
-
-def dumps(config: ConfigBase, fmt: _Format = "json", **kwargs: Any) -> str:
-    """Serialize a configuration to a string in the given format.
-
-    Args:
-        config (ConfigBase): The configuration to serialize.
-        fmt (_Format, optional): The format to use ('json', 'toml', or 'yaml'). Defaults to "json".
-        **kwargs (Any): Additional keyword arguments passed to the specific format serializer.
-
-    Returns:
-        str: The serialized configuration string.
-
-    Raises:
-        ValueError: If the format is not supported.
-    """
-    serializer = _DUMPS.get(fmt)
-    if serializer is None:
-        raise ValueError(f"Unsupported format '{fmt}'. Choose from: {list(_DUMPS)}")
-    return serializer(config, **kwargs)
-
-
-def loads(cls: type[_T], fmt: _Format, text: str) -> _T:
-    """Deserialize a configuration instance from a string in the given format.
-
-    Args:
-        cls (type[_T]): The configuration class to instantiate.
-        fmt (_Format): The format used ('json', 'toml', or 'yaml').
-        text (str): The serialized configuration string.
-
-    Returns:
-        _T: The deserialized configuration instance.
-
-    Raises:
-        ValueError: If the format is not supported.
-    """
-    deserializer = _LOADS.get(fmt)
-    if deserializer is None:
-        raise ValueError(f"Unsupported format '{fmt}'. Choose from: {list(_LOADS)}")
-    return deserializer(cls, text)
+    loader = _LOADERS.get(ext)
+    if loader is None:
+        raise ValueError(f"Unsupported extension {ext!r}. Supported: {SUPPORTED_EXTENSIONS}")
+    return loader(cls, path)

@@ -68,6 +68,7 @@ nav = [
     ] },
     { "Concepts" = [
         { "ConfigBase & Composition" = "concepts/configbase.md" },
+        { "Serialisation" = "concepts/serialization.md" },
         { "Store Registry" = "concepts/store.md" },
         { "Sweep Engine" = "concepts/sweep.md" },
         { "Sources & I/O" = "concepts/sources.md" },

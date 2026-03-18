@@ -1,154 +1,230 @@
 import pytest
-from pathlib import Path
+from typing import Optional
+from pydantic import ValidationError
 from canopee.core import ConfigBase
 from canopee.serialization import (
+    to_dict,
+    from_dict,
+    to_json_str,
+    from_json_str,
+    save_json,
+    load_json,
+    to_yaml_str,
+    from_yaml_str,
+    save_yaml,
+    load_yaml,
+    to_toml_str,
+    from_toml_str,
+    save_toml,
+    load_toml,
     save,
     load,
-    dumps,
-    loads,
-    to_json,
-    from_json,
-    dumps_json,
-    loads_json,
-    to_yaml,
-    from_yaml,
-    dumps_yaml,
-    loads_yaml,
-    to_toml,
-    from_toml,
-    dumps_toml,
-    loads_toml,
-    _to_path,
+    _DROP,
+    _sanitize_toml,
 )
-from pydantic import computed_field
+
+# --- Sample Configs for Testing ---
 
 
 class SubConfig(ConfigBase):
-    val: int = 1
+    units: int = 64
+    name: str = "layer1"
 
 
-class MyConfig(ConfigBase):
-    name: str = "test"
-    sub: SubConfig = SubConfig()
-
-    @computed_field
-    @property
-    def upper_name(self) -> str:
-        return self.name.upper()
+class MainConfig(ConfigBase):
+    epochs: int = 10
+    lr: float = 1e-3
+    optimizer: SubConfig = SubConfig()
+    tags: list[str] = ["base", "v1"]
+    nullable_field: Optional[int] = None
 
 
-def test_to_path():
-    p = Path("test.txt")
-    assert _to_path(p) == p
-    assert _to_path("test.txt") == Path("test.txt")
+# --- Layer 1: Dict tests ---
 
 
-def test_json_serialization(tmp_path):
-    cfg = MyConfig(name="json")
-    path = tmp_path / "test.json"
+def test_dict_roundtrip():
+    cfg = MainConfig(epochs=20, lr=3e-4, tags=["test"])
+    data = to_dict(cfg)
+    assert isinstance(data, dict)
+    assert data["epochs"] == 20
+    assert data["lr"] == 3e-4
+    assert data["optimizer"]["units"] == 64
+    assert data["tags"] == ["test"]
+    assert "fingerprint" not in data
 
-    # File API
-    to_json(cfg, path)
-    loaded = from_json(MyConfig, path)
-    assert loaded.name == "json"
-    assert loaded.upper_name == "JSON"
-
-    # String API
-    s = dumps_json(cfg)
-    loaded_s = loads_json(MyConfig, s)
-    assert loaded_s.name == "json"
-
-    # With computed
-    s_comp = dumps_json(cfg, include_computed=True)
-    assert "upper_name" in s_comp
+    cfg2 = from_dict(MainConfig, data)
+    assert cfg2 == cfg
+    assert isinstance(cfg2, MainConfig)
 
 
-def test_yaml_serialization(tmp_path):
-    cfg = MyConfig(name="yaml")
-    path = tmp_path / "test.yaml"
-
-    # File API
-    to_yaml(cfg, path)
-    loaded = from_yaml(MyConfig, path)
-    assert loaded.name == "yaml"
-
-    # String API
-    s = dumps_yaml(cfg)
-    assert "fingerprint:" in s
-    loaded_s = loads_yaml(MyConfig, s)
-    assert loaded_s.name == "yaml"
+def test_from_dict_validation_error():
+    with pytest.raises(ValidationError):
+        from_dict(MainConfig, {"epochs": "not_an_int"})
 
 
-def test_toml_serialization(tmp_path):
-    cfg = MyConfig(name="toml")
-    path = tmp_path / "test.toml"
-
-    # File API
-    to_toml(cfg, path)
-    loaded = from_toml(MyConfig, path)
-    assert loaded.name == "toml"
-
-    # String API
-    s = dumps_toml(cfg)
-    loaded_s = loads_toml(MyConfig, s)
-    assert loaded_s.name == "toml"
+# --- Layer 2: String tests ---
 
 
-def test_toml_sanitize():
-    class TomlConfig(ConfigBase):
-        opt: int | None = None
-        list_val: list[int | None] = [1, None, 2]
+def test_json_string_roundtrip():
+    cfg = MainConfig(epochs=5)
+    text = to_json_str(cfg, indent=4)
+    assert '"epochs": 5' in text
 
-    cfg = TomlConfig()
-    s = dumps_toml(cfg)
-    # None should be omitted in TOML
-    assert "opt" not in s
-    # Check that 1 and 2 are there, but None is not
-    assert "1" in s
+    cfg2 = from_json_str(MainConfig, text)
+    assert cfg2 == cfg
 
 
-def test_yaml_import_error(monkeypatch):
-    import sys
+def test_yaml_string_roundtrip():
+    cfg = MainConfig(epochs=5)
+    text = to_yaml_str(cfg)
+    assert "epochs: 5" in text
+    assert "# canopee config" in text
+    assert f"# class: {MainConfig.__name__}" in text
 
-    monkeypatch.setitem(sys.modules, "yaml", None)
-    with pytest.raises(ImportError, match="requires PyYAML"):
-        dumps_yaml(MyConfig())
-
-
-def test_toml_writer_import_error(monkeypatch):
-    import sys
-
-    monkeypatch.setitem(sys.modules, "tomli_w", None)
-    with pytest.raises(ImportError, match="requires tomli-w"):
-        dumps_toml(MyConfig())
+    cfg2 = from_yaml_str(MainConfig, text)
+    assert cfg2 == cfg
 
 
-def test_dispatcher_save_load(tmp_path):
-    cfg = MyConfig(name="dispatch")
+def test_toml_string_roundtrip():
+    cfg = MainConfig(epochs=5)
+    text = to_toml_str(cfg)
+    assert "epochs = 5" in text
 
-    for ext in [".json", ".toml", ".yaml", ".yml"]:
+    cfg2 = from_toml_str(MainConfig, text)
+    assert cfg2 == cfg
+
+
+# --- Layer 3: File I/O tests ---
+
+
+def test_json_file_io(tmp_path):
+    cfg = MainConfig(epochs=15)
+    path = tmp_path / "config.json"
+    save_json(cfg, path)
+    assert path.exists()
+
+    cfg2 = load_json(MainConfig, path)
+    assert cfg2 == cfg
+
+
+def test_yaml_file_io(tmp_path):
+    cfg = MainConfig(epochs=15)
+    path = tmp_path / "config.yaml"
+    save_yaml(cfg, path)
+    assert path.exists()
+
+    cfg2 = load_yaml(MainConfig, path)
+    assert cfg2 == cfg
+
+
+def test_toml_file_io(tmp_path):
+    cfg = MainConfig(epochs=15)
+    path = tmp_path / "config.toml"
+    save_toml(cfg, path)
+    assert path.exists()
+
+    cfg2 = load_toml(MainConfig, path)
+    assert cfg2 == cfg
+
+
+# --- Auto-dispatch tests ---
+
+
+def test_auto_dispatch_save_load(tmp_path):
+    cfg = MainConfig(epochs=100)
+
+    for ext in [".json", ".yaml", ".yml", ".toml"]:
         path = tmp_path / f"test{ext}"
         save(cfg, path)
-        loaded = load(MyConfig, path)
-        assert loaded.name == "dispatch"
+        assert path.exists()
+        cfg2 = load(MainConfig, path)
+        assert cfg2 == cfg
+
+
+def test_auto_dispatch_unsupported_extension():
+    cfg = MainConfig()
+    with pytest.raises(ValueError, match="Unsupported extension"):
+        save(cfg, "config.txt")
 
     with pytest.raises(ValueError, match="Unsupported extension"):
-        save(cfg, tmp_path / "test.txt")
-
-    with pytest.raises(ValueError, match="Unsupported extension"):
-        load(MyConfig, tmp_path / "test.txt")
+        load(MainConfig, "config.txt")
 
 
-def test_dispatcher_dumps_loads():
-    cfg = MyConfig(name="dispatch")
+# --- TOML None Handling ---
 
-    for fmt in ["json", "toml", "yaml"]:
-        s = dumps(cfg, fmt)
-        loaded = loads(MyConfig, fmt, s)
-        assert loaded.name == "dispatch"
 
-    with pytest.raises(ValueError, match="Unsupported format"):
-        dumps(cfg, "txt")
+def test_toml_none_drop():
+    cfg = MainConfig(nullable_field=None)
+    text = to_toml_str(cfg, none_handling="drop")
+    assert "nullable_field" not in text
 
-    with pytest.raises(ValueError, match="Unsupported format"):
-        loads(MyConfig, "txt", "data")
+
+def test_toml_none_raise():
+    cfg = MainConfig(nullable_field=None)
+    with pytest.raises(ValueError, match="None value at 'nullable_field' cannot be serialised to TOML"):
+        to_toml_str(cfg, none_handling="raise")
+
+
+def test_toml_none_null_str():
+    cfg = MainConfig(nullable_field=None)
+    text = to_toml_str(cfg, none_handling="null_str")
+    assert 'nullable_field = "null"' in text
+
+
+def test_sanitize_toml_nested_none():
+    data = {"a": {"b": None}, "c": [None, 1]}
+
+    # Drop (default)
+    res_drop = _sanitize_toml(data, none_handling="drop")
+    assert res_drop == {"a": {}, "c": [1]}
+
+    # Raise
+    with pytest.raises(ValueError, match="None value at 'a.b'"):
+        _sanitize_toml(data, none_handling="raise")
+
+    # Null string
+    res_null = _sanitize_toml(data, none_handling="null_str")
+    assert res_null == {"a": {"b": "null"}, "c": ["null", 1]}
+
+
+# --- Internal Helpers / Edge cases ---
+
+
+def test_require_dependencies(monkeypatch):
+    # Test ImportError when PyYAML is missing
+    def mock_import_yaml():
+        raise ImportError("PyYAML not found")
+
+    # We can't easily mock the import itself without complex mocking,
+    # but we can mock the helper function if we want to reach 100% coverage
+    # of the error message part if it's not already covered.
+
+    from canopee import serialization
+
+    # Let's try to trigger the ImportError by mocking __import__ or similar
+    # Actually, simpler: just call the _require_* functions if they are exposed or
+    # mock the import in their module.
+
+    # For tomli-w
+    # (Since we are likely running in an env with them, we have to force the failure)
+
+    import builtins
+
+    original_import = builtins.__import__
+
+    def mocked_import(name, *args, **kwargs):
+        if name in ("yaml", "tomli_w"):
+            raise ImportError(f"No module named '{name}'")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", mocked_import)
+
+    with pytest.raises(ImportError, match="YAML support requires PyYAML"):
+        serialization._require_yaml()
+
+    with pytest.raises(ImportError, match="Writing TOML requires tomli-w"):
+        serialization._require_tomli_w()
+
+
+def test_drop_repr():
+    assert repr(_DROP) == "<DROP>"

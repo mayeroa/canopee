@@ -1,0 +1,10 @@
+process.id: com.airbus.processing.genericcommand.hulk.v3
+default_worker: gdal-medium
+
+Step.1: hulk landcover refine-building-mask-tile --root-dir /home/alexandre/Desktop/20-29-Data/29-Tests/29.12-Hulk/DEMO_SMALL_V10 --tile-id tile_0000
+Step.1: hulk landcover refine-building-mask-tile --root-dir /home/alexandre/Desktop/20-29-Data/29-Tests/29.12-Hulk/DEMO_SMALL_V10 --tile-id tile_0001
+Step.1: hulk landcover refine-building-mask-tile --root-dir /home/alexandre/Desktop/20-29-Data/29-Tests/29.12-Hulk/DEMO_SMALL_V10 --tile-id tile_0002
+Step.1: hulk landcover refine-building-mask-tile --root-dir /home/alexandre/Desktop/20-29-Data/29-Tests/29.12-Hulk/DEMO_SMALL_V10 --tile-id tile_0003
+Step.1: hulk landcover refine-building-mask-tile --root-dir /home/alexandre/Desktop/20-29-Data/29-Tests/29.12-Hulk/DEMO_SMALL_V10 --tile-id tile_0004
+Step.1: hulk landcover refine-building-mask-tile --root-dir /home/alexandre/Desktop/20-29-Data/29-Tests/29.12-Hulk/DEMO_SMALL_V10 --tile-id tile_0005
+Step.2: hulk gis tiles2cog --src-folder /home/alexandre/Desktop/20-29-Data/29-Tests/29.12-Hulk/DEMO_SMALL_V10/2_intermediate/2-02_masks/building_mask --dst-path /home/alexandre/Desktop/20-29-Data/29-Tests/29.12-Hulk/DEMO_SMALL_V10/2_intermediate/2-02_masks/building_mask.gti.gpkg
